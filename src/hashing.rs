@@ -5,10 +5,11 @@ use sha2::Sha256;
 
 use crate::encoding::I2OSP;
 
-const DST: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_MAP_MSG_TO_SCALAR_AS_HASH_";
-
+// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-mapmessagetoscalarashash
 #[allow(unused_comparisons)]
 pub fn map_message_to_scalar_as_hash(message: &[u8]) -> Scalar {
+    const DST: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_MAP_MSG_TO_SCALAR_AS_HASH_";
+
     // 1. If length(dst) > 2^8 - 1 or length(msg) > 2^64 - 1, return INVALID
     if DST.len() > 0xFF || message.len() > 0xFFFF_FFFF_FFFF_FFFF {
         panic!("Invalid DST or message length");
@@ -20,14 +21,45 @@ pub fn map_message_to_scalar_as_hash(message: &[u8]) -> Scalar {
     let msg_prime = [message.len().to_osp(8), message.to_vec()].concat();
 
     // 4. result = hash_to_scalar(msg_prime || dst_prime, 1)
-    let mut result = [0u8; 48];
-    ExpandMsgXmd::<Sha256>::expand_message(
-        [msg_prime, dst_prime].concat().as_slice(),
-        DST,
-        &mut result,
-    );
+    let result = hash_to_scalar([msg_prime, dst_prime].concat().as_slice(), 1);
+    assert_eq!(1, result.len());
 
-    Scalar::from_okm(&result)
+    result[0]
+}
+
+// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#section-4.3
+pub(crate) fn hash_to_scalar(msg_octets: &[u8], count: usize) -> Vec<Scalar> {
+    const DST: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_HASH_TO_SCALAR_";
+    const EXPAND_LEN: usize = 48;
+
+    // 1.  len_in_bytes = count * expand_len
+    let len_in_bytes = count * EXPAND_LEN;
+
+    // 2.  t = 0
+    let mut t = 0;
+
+    // 3.  msg_prime = msg_octets || I2OSP(t, 1) || I2OSP(count, 4)
+    let msg_prime = [msg_octets.to_vec(), t.to_osp(1), count.to_osp(4)].concat();
+
+    // 4.  uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
+    let mut uniform_bytes = vec![0u8; len_in_bytes];
+    ExpandMsgXmd::<Sha256>::expand_message(msg_prime.as_slice(), DST, uniform_bytes.as_mut_slice());
+
+    // 5.  for i in (1, ..., count):
+    // 6.      tv = uniform_bytes[(i-1)*expand_len..i*expand_len-1]
+    // 7.      scalar_i = OS2IP(tv) mod r
+    // 8.  if 0 in (scalar_1, ..., scalar_count):
+    // 9.      t = t + 1
+    // 10.     go back to step 3
+    let mut result = Vec::new();
+    for i in 0..count {
+        result.push(Scalar::from_okm(
+            uniform_bytes[i * EXPAND_LEN..(i + 1) * EXPAND_LEN]
+                .try_into()
+                .unwrap(),
+        ));
+    }
+    result
 }
 
 #[test]

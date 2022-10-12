@@ -1,15 +1,11 @@
-use std::hash::Hash;
-
-use bls12_381_plus::{
-    ExpandMsg, ExpandMsgXmd, ExpandMsgXof, G1Affine, G1Projective, G2Affine, G2Projective, Scalar,
-};
+use bls12_381_plus::{ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Projective, Scalar};
 use encoding::{I2OSP, OS2IP};
-use hashing::EncodeForHash;
+use hashing::{hash_to_scalar, EncodeForHash};
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 
-mod hashing;
 mod encoding;
+mod hashing;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
@@ -54,7 +50,7 @@ fn create_generators(count: usize) -> Generators {
     while generators.len() < count {
         // 4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
         ExpandMsgXmd::<Sha256>::expand_message(
-            [&v[..], &n.to_be_bytes()[..]].concat().as_slice(),
+            [v.to_vec(), n.to_osp(4)].concat().as_slice(),
             seed_dst,
             &mut v,
         );
@@ -184,10 +180,10 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     .concat();
 
     // 4.  domain = hash_to_scalar(dom_for_hash, 1)
-    let mut domain = [0u8; 48];
-    ExpandMsgXmd::<Sha256>::expand_message(&dom_for_hash, vec![].as_slice(), &mut domain);
+    let domain = hash_to_scalar(dom_for_hash.as_slice(), 1);
+    assert_eq!(domain.len(), 1, "incorrect domain scalar length");
 
-    let domain = Scalar::from_okm(&domain);
+    let domain = domain[0];
 
     // 5.  e_s_for_hash = encode_for_hash((SK, domain, msg_1, ..., msg_L))
     let e_s_for_hash = vec![
@@ -202,10 +198,10 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     .concat();
 
     // 7.  (e, s) = hash_to_scalar(e_s_for_hash, 2)
-    let mut e_s = [0u8; 96];
-    ExpandMsgXmd::<Sha256>::expand_message(&e_s_for_hash, vec![].as_slice(), &mut e_s);
-    let e = Scalar::from_okm(&e_s[..48].try_into().unwrap());
-    let s = Scalar::from_okm(&e_s[48..].try_into().unwrap());
+    let e_s = hash_to_scalar(e_s_for_hash.as_slice(), 2);
+    assert_eq!(e_s.len(), 2, "incorrect e_s scalar length");
+    let e = e_s[0];
+    let s = e_s[1];
 
     // 8.  B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
     let B = generators.base_point
@@ -227,6 +223,8 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
 #[cfg(test)]
 mod tests {
     use std::vec;
+
+    use bls12_381_plus::G2Affine;
 
     use crate::hashing::map_message_to_scalar_as_hash;
 

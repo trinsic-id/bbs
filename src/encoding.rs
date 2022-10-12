@@ -2,7 +2,6 @@ use bls12_381_plus::Scalar;
 
 use crate::OctetString;
 
-
 pub(crate) trait I2OSP {
     fn to_osp(&self, len: usize) -> OctetString;
 }
