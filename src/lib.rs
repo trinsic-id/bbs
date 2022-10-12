@@ -3,8 +3,13 @@ use std::hash::Hash;
 use bls12_381_plus::{
     ExpandMsg, ExpandMsgXmd, ExpandMsgXof, G1Affine, G1Projective, G2Affine, G2Projective, Scalar,
 };
+use encoding::{I2OSP, OS2IP};
+use hashing::EncodeForHash;
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
+
+mod hashing;
+mod encoding;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
@@ -13,7 +18,6 @@ pub fn add(left: usize, right: usize) -> usize {
 type SecretKey = Scalar;
 type PublicKey = G2Projective;
 type OctetString = Vec<u8>;
-type Message<'a> = &'a [u8];
 
 struct Generators {
     base_point: G1Projective,
@@ -45,33 +49,29 @@ fn create_generators(count: usize) -> Generators {
     // 2.  n = 1
     let mut n = 1i32;
 
-    let mut generators = Vec::new();
     // 3.  for i in range(1, count):
-    for _i in 1..=count {
-        let mut candidate = G1Projective::identity();
-        loop {
-            // 4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
-            ExpandMsgXmd::<Sha256>::expand_message(
-                vec![&v[..], &n.to_be_bytes()[..]].concat().as_slice(),
-                seed_dst,
-                &mut v,
-            );
-            // 5.     n = n + 1
-            n += 1;
+    let mut generators = Vec::new();
+    while generators.len() < count {
+        // 4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
+        ExpandMsgXmd::<Sha256>::expand_message(
+            [&v[..], &n.to_be_bytes()[..]].concat().as_slice(),
+            seed_dst,
+            &mut v,
+        );
 
-            // 6.     generator_i = Identity_G1
-            // 7.     candidate = hash_to_curve_g1(v, generator_dst)
-            candidate = G1Projective::hash::<ExpandMsgXmd<Sha256>>(&v, generator_dst);
+        // 5.     n = n + 1
+        n += 1;
 
-            // 8.     if candidate in (generator_1, ..., generator_i):
-            // 9.        go back to step 4
-            if !generators.contains(&candidate) && candidate != G1Projective::identity() {
-                break;
-            }
+        // 6.     generator_i = Identity_G1
+        // 7.     candidate = hash_to_curve_g1(v, generator_dst)
+        let candidate = G1Projective::hash::<ExpandMsgXmd<Sha256>>(&v, generator_dst);
+
+        // 8.     if candidate in (generator_1, ..., generator_i):
+        // 9.        go back to step 4
+        if !generators.contains(&candidate) && candidate != G1Projective::identity() {
+            // 10.    generator_i = candidate
+            generators.push(candidate);
         }
-
-        // 10.    generator_i = candidate
-        generators.push(candidate);
     }
 
     // 11. return (generator_1, ..., generator_count)
@@ -87,6 +87,32 @@ struct Signature {
     pub A: G1Projective,
     pub s: Scalar,
     pub e: Scalar,
+}
+
+enum Error {
+    InvalidSignature,
+}
+
+impl Signature {
+    // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-signaturetooctets
+    pub fn to_octet_string(&self) -> OctetString {
+        [
+            self.A.encode_for_hash(),
+            self.e.to_osp(48),
+            self.s.to_osp(48),
+        ]
+        .concat()
+    }
+
+    pub fn from_octet_string(octet_string: &OctetString) -> Result<Signature, Error> {
+        let A = G1Affine::from_compressed(&octet_string[0..48].try_into().unwrap())
+            .unwrap()
+            .into();
+        let e = Scalar::from_osp(&octet_string[48..96].to_vec());
+        let s = Scalar::from_osp(&octet_string[96..144].to_vec());
+
+        Ok(Signature { A, s, e })
+    }
 }
 
 fn key_gen<T: AsRef<[u8]>>(ikm: T, key_info: &[u8]) -> SecretKey {
@@ -129,6 +155,7 @@ fn sk_to_pk(sk: &SecretKey) -> PublicKey {
 }
 
 fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -> Signature {
+    let ciphersuite_id: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_";
     let PK = sk_to_pk(&sk);
 
     let header = header.unwrap_or_default();
@@ -140,22 +167,21 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
 
     // 1.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 2.  dom_for_hash = encode_for_hash(dom_array)
-    let dom_for_hash = vec![
-        PK.to_octet_string(),
-        L.to_octet_string(),
-        generators.Q1.to_octet_string(),
-        generators.Q2.to_octet_string(),
+    let dom_for_hash = [
+        PK.encode_for_hash(),
+        L.encode_for_hash(),
+        generators.Q1.encode_for_hash(),
+        generators.Q2.encode_for_hash(),
         generators
             .message_generators
             .iter()
-            .map(|g| g.to_octet_string())
+            .map(|g| g.encode_for_hash())
             .flatten()
             .collect::<Vec<u8>>(),
-        b"BBS+".to_vec(),
-        header,
+        ciphersuite_id.encode_for_hash(),
+        header.as_slice().encode_for_hash(),
     ]
-    .concat()
-    .to_vec();
+    .concat();
 
     // 4.  domain = hash_to_scalar(dom_for_hash, 1)
     let mut domain = [0u8; 48];
@@ -165,11 +191,11 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
 
     // 5.  e_s_for_hash = encode_for_hash((SK, domain, msg_1, ..., msg_L))
     let e_s_for_hash = vec![
-        sk.to_octet_string(),
-        domain.to_octet_string(),
+        sk.encode_for_hash(),
+        domain.encode_for_hash(),
         messages
             .iter()
-            .map(|x| x.to_octet_string())
+            .map(|x| x.encode_for_hash())
             .flatten()
             .collect(),
     ]
@@ -198,91 +224,22 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     Signature { A: A, s: s, e: e }
 }
 
-trait I2OSP {
-    fn to_octet_string(&self) -> OctetString;
-}
-
-impl I2OSP for usize {
-    fn to_octet_string(&self) -> OctetString {
-        self.to_be_bytes().to_vec()
-    }
-}
-
-impl I2OSP for i32 {
-    fn to_octet_string(&self) -> OctetString {
-        self.to_be_bytes().to_vec()
-    }
-}
-
-impl I2OSP for &[u8] {
-    fn to_octet_string(&self) -> OctetString {
-        self.to_vec()
-    }
-}
-
-impl I2OSP for G1Projective {
-    fn to_octet_string(&self) -> OctetString {
-        G1Affine::from(self).to_compressed().to_vec()
-    }
-}
-
-impl I2OSP for G2Projective {
-    fn to_octet_string(&self) -> OctetString {
-        G2Affine::from(self).to_compressed().to_vec()
-    }
-}
-
-impl I2OSP for &str {
-    fn to_octet_string(&self) -> OctetString {
-        self.as_bytes().to_vec()
-    }
-}
-
-impl I2OSP for Scalar {
-    fn to_octet_string(&self) -> OctetString {
-        let mut i = self.to_bytes()[..].to_vec();
-        i.reverse();
-        i
-    }
-}
-
-impl I2OSP for Signature {
-    fn to_octet_string(&self) -> OctetString {
-        vec![
-            self.A.to_octet_string(),
-            self.e.to_octet_string(),
-            self.s.to_octet_string(),
-        ]
-        .concat()
-    }
-}
-
-// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#section-4.4.6
-fn encode_for_hash<'a>(input: &[impl I2OSP]) -> Vec<OctetString> {
-    input
-        .iter()
-        .map(|x| x.to_octet_string())
-        .collect::<Vec<_>>()
-}
-
 #[cfg(test)]
 mod tests {
-    use std::{ops::Mul, vec};
+    use std::vec;
 
-    use rand::RngCore;
+    use crate::hashing::map_message_to_scalar_as_hash;
 
     use super::*;
 
-    // #[test]
-    // fn gen_sk_random() {
-    //     let i = 2u8.to_be_bytes();
+    #[test]
+    fn to_octet_string_test() {
+        let i = 42usize;
 
-    //     let mut ikm = [0u8; 32];
-    //     rand::thread_rng().fill_bytes(&mut ikm);
-
-    //     let sk = key_gen(&ikm, vec![].as_slice());
-    //     println!("secret key: {:?}", sk);
-    // }
+        assert_eq!(i.to_osp(1).len(), 1);
+        assert_eq!(i.to_osp(3).len(), 3);
+        assert_eq!(i.to_osp(3), vec![0, 0, 42]);
+    }
 
     #[test]
     fn create_generators_test() {
@@ -290,12 +247,12 @@ mod tests {
 
         println!(
             "base point: {:?}",
-            hex::encode(generators.base_point.to_octet_string())
+            hex::encode(generators.base_point.encode_for_hash())
         );
-        println!("Q1: {:?}", hex::encode(generators.Q1.to_octet_string()));
-        println!("Q2: {:?}", hex::encode(generators.Q2.to_octet_string()));
+        println!("Q1: {:?}", hex::encode(generators.Q1.encode_for_hash()));
+        println!("Q2: {:?}", hex::encode(generators.Q2.encode_for_hash()));
         for g in generators.message_generators {
-            println!("generator: {:?}", hex::encode(g.to_octet_string()));
+            println!("generator: {:?}", hex::encode(g.encode_for_hash()));
         }
     }
 
@@ -309,7 +266,7 @@ mod tests {
 
         let signature = sign(sk, None, Some(messages));
 
-        println!("signature: {:?}", hex::encode(signature.to_octet_string()));
+        //println!("signature: {:?}", hex::encode(signature.to_octet_string()));
     }
     #[test]
     fn gen_sk_fixture() {
@@ -321,13 +278,6 @@ mod tests {
         bytes.reverse();
 
         println!("secret key: {:?}", hex::encode(bytes));
-    }
-
-    #[test]
-    fn endianess() {
-        let sc = Scalar::from(1u64);
-
-        println!("scalar: {:?}", hex::encode(sc.to_bytes()));
     }
 
     #[test]
@@ -365,5 +315,44 @@ mod tests {
             "gen: {:?}",
             hex::encode(G2Affine::generator().to_compressed())
         );
+    }
+
+    #[test]
+    fn signature_test() {
+        let mut bytes =
+            hex::decode("47d2ede63ab4c329092b342ab526b1079dbc2595897d4f2ab2de4d841cbe7d56")
+                .unwrap();
+        bytes.reverse();
+        let sk = Scalar::from_bytes(bytes.as_slice().try_into().unwrap()).unwrap();
+        println!("sk: {:?}", hex::encode(sk.encode_for_hash()));
+
+        let header = b"11223344556677889900aabbccddeeff".to_vec();
+        let messages = [b"9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"];
+
+        let expected = hex::decode("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44").unwrap();
+
+        let actual = sign(
+            sk,
+            Some(header),
+            Some(
+                messages
+                    .iter()
+                    .map(|m| map_message_to_scalar_as_hash(m.as_slice()))
+                    .collect(),
+            ),
+        );
+
+        println!("actual: {:?}", hex::encode(actual.to_octet_string()));
+        println!("expected: {:?}", hex::encode(expected));
+        //assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn message_test() {
+        let mut bytes =
+            hex::decode("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02")
+                .unwrap();
+        //bytes.reverse();
+        let scalar = Scalar::from_bytes(bytes.as_slice().try_into().unwrap()).unwrap();
     }
 }
