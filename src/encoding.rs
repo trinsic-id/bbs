@@ -36,7 +36,7 @@ impl I2OSP for u64 {
 }
 
 impl I2OSP for Scalar {
-    fn to_osp(&self, len: usize) -> OctetString {
+    fn to_osp(&self, _: usize) -> OctetString {
         let mut i = self.to_bytes()[..].to_vec();
         i.reverse();
         i

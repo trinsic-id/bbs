@@ -1,15 +1,16 @@
-use bls12_381_plus::{ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Projective, Scalar};
+use std::ops::{Mul, Neg};
+
+use bls12_381_plus::{
+    multi_miller_loop, pairing, ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Affine,
+    G2Prepared, G2Projective, Gt, Scalar,
+};
 use encoding::{I2OSP, OS2IP};
 use hashing::{hash_to_scalar, EncodeForHash};
 use hkdf::Hkdf;
-use sha2::{Digest, Sha256};
+use sha2::{digest::generic_array::typenum::private::IsEqualPrivate, Digest, Sha256};
 
 mod encoding;
 mod hashing;
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
 
 type SecretKey = Scalar;
 type PublicKey = G2Projective;
@@ -149,9 +150,8 @@ fn key_gen<T: AsRef<[u8]>>(ikm: T, key_info: &[u8]) -> SecretKey {
 fn sk_to_pk(sk: &SecretKey) -> PublicKey {
     G2Projective::generator() * sk
 }
-
+const ciphersuite_id: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_";
 fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -> Signature {
-    let ciphersuite_id: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_";
     let PK = sk_to_pk(&sk);
 
     let header = header.unwrap_or_default();
@@ -174,7 +174,7 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
             .map(|g| g.encode_for_hash())
             .flatten()
             .collect::<Vec<u8>>(),
-        ciphersuite_id.encode_for_hash(),
+        ciphersuite_id.to_vec(),
         header.as_slice().encode_for_hash(),
     ]
     .concat();
@@ -220,6 +220,68 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     Signature { A: A, s: s, e: e }
 }
 
+fn verify(
+    pk: &PublicKey,
+    signature: &Signature,
+    header: Option<Vec<u8>>,
+    messages: Option<Vec<Scalar>>,
+) -> bool {
+    let header = header.unwrap_or_default();
+    let messages = messages.unwrap_or_default();
+
+    let L = messages.len();
+    let generators = create_generators(L + 2);
+
+    // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
+    // 7.  dom_for_hash = encode_for_hash(dom_array)
+    let dom_for_hash = [
+        pk.encode_for_hash(),
+        L.encode_for_hash(),
+        generators.Q1.encode_for_hash(),
+        generators.Q2.encode_for_hash(),
+        generators
+            .message_generators
+            .iter()
+            .map(|g| g.encode_for_hash())
+            .flatten()
+            .collect::<Vec<u8>>(),
+        ciphersuite_id.to_vec(),
+        header.as_slice().encode_for_hash(),
+    ]
+    .concat();
+
+    // 9.  domain = hash_to_scalar(dom_for_hash, 1)
+    let domain = hash_to_scalar(dom_for_hash.as_slice(), 1);
+    assert_eq!(domain.len(), 1, "incorrect domain scalar length");
+
+    let domain = domain[0];
+
+    // 10. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
+    let B = generators.base_point
+        + generators.Q1 * signature.s
+        + generators.Q2 * domain
+        + generators
+            .message_generators
+            .iter()
+            .zip(messages.iter())
+            .map(|(g, m)| g * m)
+            .sum::<G1Projective>();
+
+    // 11. if e(A, W + P2 * e) * e(B, -P2) != Identity_GT, return INVALID
+    multi_miller_loop(&[
+        (
+            &G1Affine::from(signature.A),
+            &G2Prepared::from(G2Affine::from(pk + G2Projective::generator() * signature.e)),
+        ),
+        (
+            &G1Affine::from(B),
+            &G2Prepared::from(G2Affine::from(G2Projective::generator().neg())),
+        ),
+    ])
+    .final_exponentiation()
+        == Gt::identity()
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
@@ -259,7 +321,7 @@ mod tests {
         let sk_bytes =
             hex::decode("47d2ede63ab4c329092b342ab526b1079dbc2595897d4f2ab2de4d841cbe7d56")
                 .unwrap();
-        let sk = Scalar::from_bytes(sk_bytes.as_slice().try_into().unwrap()).unwrap();
+        let sk = Scalar::from_osp(&sk_bytes);
         let messages = vec![Scalar::from(1u64), Scalar::from(2u64)];
 
         let signature = sign(sk, None, Some(messages));
@@ -321,7 +383,8 @@ mod tests {
             hex::decode("47d2ede63ab4c329092b342ab526b1079dbc2595897d4f2ab2de4d841cbe7d56")
                 .unwrap();
         bytes.reverse();
-        let sk = Scalar::from_bytes(bytes.as_slice().try_into().unwrap()).unwrap();
+        let sk = Scalar::from_osp(&bytes);
+        let pk = sk_to_pk(&sk);
         println!("sk: {:?}", hex::encode(sk.encode_for_hash()));
 
         let header = b"11223344556677889900aabbccddeeff".to_vec();
@@ -331,6 +394,18 @@ mod tests {
 
         let actual = sign(
             sk,
+            Some(header.clone()),
+            Some(
+                messages
+                    .iter()
+                    .map(|m| map_message_to_scalar_as_hash(m.as_slice()))
+                    .collect(),
+            ),
+        );
+
+        let verify = verify(
+            &pk,
+            &actual,
             Some(header),
             Some(
                 messages
@@ -340,17 +415,10 @@ mod tests {
             ),
         );
 
+        println!("verify: {:?}", verify);
+
         println!("actual: {:?}", hex::encode(actual.to_octet_string()));
         println!("expected: {:?}", hex::encode(expected));
         //assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn message_test() {
-        let mut bytes =
-            hex::decode("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02")
-                .unwrap();
-        //bytes.reverse();
-        let scalar = Scalar::from_bytes(bytes.as_slice().try_into().unwrap()).unwrap();
     }
 }
