@@ -1,14 +1,18 @@
-use std::ops::{Mul, Neg};
+use std::ops::Neg;
 
 use bls12_381_plus::{
-    multi_miller_loop, pairing, ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Affine,
-    G2Prepared, G2Projective, Gt, Scalar,
+    multi_miller_loop, ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Affine, G2Prepared,
+    G2Projective, Gt, Scalar,
 };
+use ciphersuite::BbsCiphersuite;
 use encoding::{I2OSP, OS2IP};
 use hashing::{hash_to_scalar, EncodeForHash};
 use hkdf::Hkdf;
-use sha2::{digest::generic_array::typenum::private::IsEqualPrivate, Digest, Sha256};
+use sha2::{Digest, Sha256};
 
+use crate::ciphersuite::Bls12381Sha256;
+
+mod ciphersuite;
 mod encoding;
 mod hashing;
 
@@ -23,15 +27,14 @@ struct Generators {
     message_generators: Vec<G1Projective>,
 }
 
-fn create_generators(count: usize) -> Generators {
+fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Generators {
     if count < 2 {
         panic!("count must be greater than 1");
     }
 
-    let generator_seed = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_MESSAGE_GENERATOR_SEED";
-    let hash_to_curve_suite = b"BLS12381G1_XMD:SHA-256_SSWU_RO_";
-    let seed_dst = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_SIG_GENERATOR_SEED_";
-    let generator_dst = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_SIG_GENERATOR_DST_";
+    let generator_seed = T::generator_seed();
+    let seed_dst = T::generator_seed_dst();
+    let generator_dst = T::generator_dst();
     const seed_len: usize = 48;
 
     let mut bytes = [0u8; 48];
@@ -41,7 +44,7 @@ fn create_generators(count: usize) -> Generators {
 
     // 1.  v = expand_message(generator_seed, seed_dst, seed_len)
     let mut v = [0u8; seed_len];
-    ExpandMsgXmd::<Sha256>::expand_message(generator_seed.as_slice(), seed_dst, &mut v);
+    ExpandMsgXmd::<Sha256>::expand_message(generator_seed.as_slice(), seed_dst.as_slice(), &mut v);
 
     // 2.  n = 1
     let mut n = 1i32;
@@ -52,7 +55,7 @@ fn create_generators(count: usize) -> Generators {
         // 4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
         ExpandMsgXmd::<Sha256>::expand_message(
             [v.to_vec(), n.to_osp(4)].concat().as_slice(),
-            seed_dst,
+            seed_dst.as_slice(),
             &mut v,
         );
 
@@ -61,7 +64,7 @@ fn create_generators(count: usize) -> Generators {
 
         // 6.     generator_i = Identity_G1
         // 7.     candidate = hash_to_curve_g1(v, generator_dst)
-        let candidate = G1Projective::hash::<ExpandMsgXmd<Sha256>>(&v, generator_dst);
+        let candidate = G1Projective::hash::<T::Expander>(&v, generator_dst.as_slice());
 
         // 8.     if candidate in (generator_1, ..., generator_i):
         // 9.        go back to step 4
@@ -150,8 +153,12 @@ fn key_gen<T: AsRef<[u8]>>(ikm: T, key_info: &[u8]) -> SecretKey {
 fn sk_to_pk(sk: &SecretKey) -> PublicKey {
     G2Projective::generator() * sk
 }
-const ciphersuite_id: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_";
-fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -> Signature {
+
+fn sign<'a, T: BbsCiphersuite<'a>>(
+    sk: SecretKey,
+    header: Option<Vec<u8>>,
+    messages: Option<Vec<Scalar>>,
+) -> Signature {
     let PK = sk_to_pk(&sk);
 
     let header = header.unwrap_or_default();
@@ -159,7 +166,7 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     let L = messages.len();
 
     // 2. (Q_1, Q_2, H_1, ..., H_L) = create_generators(generator_seed, L+2)
-    let generators = create_generators(L + 2);
+    let generators = create_generators::<T>(L + 2);
 
     // 1.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 2.  dom_for_hash = encode_for_hash(dom_array)
@@ -174,13 +181,13 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
             .map(|g| g.encode_for_hash())
             .flatten()
             .collect::<Vec<u8>>(),
-        ciphersuite_id.to_vec(),
+        T::CIPHERSUITE_ID.to_vec(),
         header.as_slice().encode_for_hash(),
     ]
     .concat();
 
     // 4.  domain = hash_to_scalar(dom_for_hash, 1)
-    let domain = hash_to_scalar(dom_for_hash.as_slice(), 1);
+    let domain = hash_to_scalar::<Bls12381Sha256>(dom_for_hash.as_slice(), 1);
     assert_eq!(domain.len(), 1, "incorrect domain scalar length");
 
     let domain = domain[0];
@@ -198,7 +205,7 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     .concat();
 
     // 7.  (e, s) = hash_to_scalar(e_s_for_hash, 2)
-    let e_s = hash_to_scalar(e_s_for_hash.as_slice(), 2);
+    let e_s = hash_to_scalar::<Bls12381Sha256>(e_s_for_hash.as_slice(), 2);
     assert_eq!(e_s.len(), 2, "incorrect e_s scalar length");
     let e = e_s[0];
     let s = e_s[1];
@@ -220,7 +227,7 @@ fn sign(sk: SecretKey, header: Option<Vec<u8>>, messages: Option<Vec<Scalar>>) -
     Signature { A: A, s: s, e: e }
 }
 
-fn verify(
+fn verify<'a, T: BbsCiphersuite<'a>>(
     pk: &PublicKey,
     signature: &Signature,
     header: Option<Vec<u8>>,
@@ -230,7 +237,7 @@ fn verify(
     let messages = messages.unwrap_or_default();
 
     let L = messages.len();
-    let generators = create_generators(L + 2);
+    let generators = create_generators::<T>(L + 2);
 
     // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 7.  dom_for_hash = encode_for_hash(dom_array)
@@ -245,13 +252,13 @@ fn verify(
             .map(|g| g.encode_for_hash())
             .flatten()
             .collect::<Vec<u8>>(),
-        ciphersuite_id.to_vec(),
+        T::CIPHERSUITE_ID.to_vec(),
         header.as_slice().encode_for_hash(),
     ]
     .concat();
 
     // 9.  domain = hash_to_scalar(dom_for_hash, 1)
-    let domain = hash_to_scalar(dom_for_hash.as_slice(), 1);
+    let domain = hash_to_scalar::<Bls12381Sha256>(dom_for_hash.as_slice(), 1);
     assert_eq!(domain.len(), 1, "incorrect domain scalar length");
 
     let domain = domain[0];
@@ -288,7 +295,7 @@ mod tests {
 
     use bls12_381_plus::G2Affine;
 
-    use crate::hashing::map_message_to_scalar_as_hash;
+    use crate::{ciphersuite::Bls12381Sha256, hashing::map_message_to_scalar_as_hash};
 
     use super::*;
 
@@ -303,7 +310,7 @@ mod tests {
 
     #[test]
     fn create_generators_test() {
-        let generators = create_generators(12);
+        let generators = create_generators::<Bls12381Sha256>(12);
 
         println!(
             "base point: {:?}",
@@ -324,7 +331,7 @@ mod tests {
         let sk = Scalar::from_osp(&sk_bytes);
         let messages = vec![Scalar::from(1u64), Scalar::from(2u64)];
 
-        let signature = sign(sk, None, Some(messages));
+        let signature = sign::<Bls12381Sha256>(sk, None, Some(messages));
 
         //println!("signature: {:?}", hex::encode(signature.to_octet_string()));
     }
@@ -392,25 +399,25 @@ mod tests {
 
         let expected = hex::decode("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44").unwrap();
 
-        let actual = sign(
+        let actual = sign::<Bls12381Sha256>(
             sk,
             Some(header.clone()),
             Some(
                 messages
                     .iter()
-                    .map(|m| map_message_to_scalar_as_hash(m.as_slice()))
+                    .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_slice()))
                     .collect(),
             ),
         );
 
-        let verify = verify(
+        let verify = verify::<Bls12381Sha256>(
             &pk,
             &actual,
             Some(header),
             Some(
                 messages
                     .iter()
-                    .map(|m| map_message_to_scalar_as_hash(m.as_slice()))
+                    .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_slice()))
                     .collect(),
             ),
         );

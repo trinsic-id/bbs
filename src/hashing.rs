@@ -1,35 +1,37 @@
-use bls12_381_plus::{
-    ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Affine, G2Projective, Scalar,
-};
-use sha2::Sha256;
+use bls12_381_plus::{ExpandMsg, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 
-use crate::encoding::I2OSP;
+use crate::{
+    ciphersuite::{BbsCiphersuite, Bls12381Sha256},
+    encoding::I2OSP,
+};
 
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-mapmessagetoscalarashash
 #[allow(unused_comparisons)]
-pub fn map_message_to_scalar_as_hash(message: &[u8]) -> Scalar {
-    const DST: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_MAP_MSG_TO_SCALAR_AS_HASH_";
+pub fn map_message_to_scalar_as_hash<'a, T: BbsCiphersuite<'a>>(message: &[u8]) -> Scalar {
+    let dst = T::hash_to_scalar_dst();
 
     // 1. If length(dst) > 2^8 - 1 or length(msg) > 2^64 - 1, return INVALID
-    if DST.len() > 0xFF || message.len() > 0xFFFF_FFFF_FFFF_FFFF {
+    if dst.len() > 0xFF || message.len() > 0xFFFF_FFFF_FFFF_FFFF {
         panic!("Invalid DST or message length");
     }
     // 2. dst_prime = I2OSP(length(dst), 1) || dst
-    let dst_prime = [DST.len().to_osp(1), DST.to_vec()].concat();
+    let dst_prime = [dst.len().to_osp(1), dst.to_vec()].concat();
 
     // 3. msg_prime = I2OSP(length(msg), 8) || msg
     let msg_prime = [message.len().to_osp(8), message.to_vec()].concat();
 
     // 4. result = hash_to_scalar(msg_prime || dst_prime, 1)
-    let result = hash_to_scalar([msg_prime, dst_prime].concat().as_slice(), 1);
+    let result = hash_to_scalar::<Bls12381Sha256>([msg_prime, dst_prime].concat().as_slice(), 1);
     assert_eq!(1, result.len());
 
     result[0]
 }
 
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#section-4.3
-pub(crate) fn hash_to_scalar(msg_octets: &[u8], count: usize) -> Vec<Scalar> {
-    const DST: &[u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_HASH_TO_SCALAR_";
+pub(crate) fn hash_to_scalar<'a, T: BbsCiphersuite<'a>>(
+    msg_octets: &[u8],
+    count: usize,
+) -> Vec<Scalar> {
     const EXPAND_LEN: usize = 48;
 
     // 1.  len_in_bytes = count * expand_len
@@ -43,7 +45,11 @@ pub(crate) fn hash_to_scalar(msg_octets: &[u8], count: usize) -> Vec<Scalar> {
 
     // 4.  uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
     let mut uniform_bytes = vec![0u8; len_in_bytes];
-    ExpandMsgXmd::<Sha256>::expand_message(msg_prime.as_slice(), DST, uniform_bytes.as_mut_slice());
+    T::Expander::expand_message(
+        msg_prime.as_slice(),
+        T::hash_to_scalar_dst().as_slice(),
+        uniform_bytes.as_mut_slice(),
+    );
 
     // 5.  for i in (1, ..., count):
     // 6.      tv = uniform_bytes[(i-1)*expand_len..i*expand_len-1]
