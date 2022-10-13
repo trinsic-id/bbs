@@ -1,27 +1,25 @@
 use bls12_381_plus::{ExpandMsg, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 
 use crate::{
-    ciphersuite::{BbsCiphersuite, Bls12381Sha256},
+    ciphersuite::{BbsCiphersuite, Bls12381Sha256, OCTET_POINT_LENGTH},
     encoding::I2OSP,
 };
 
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-mapmessagetoscalarashash
 #[allow(unused_comparisons)]
-pub fn map_message_to_scalar_as_hash<'a, T: BbsCiphersuite<'a>>(message: &[u8]) -> Scalar {
-    let dst = T::hash_to_scalar_dst();
+pub fn map_message_to_scalar_as_hash<'a, T: BbsCiphersuite<'a>>(
+    message: &[u8],
+    dst: Option<Vec<u8>>,
+) -> Scalar {
+    let dst = dst.unwrap_or(T::map_msg_to_scalar_as_hash_dst());
 
-    // 1. If length(dst) > 2^8 - 1 or length(msg) > 2^64 - 1, return INVALID
-    if dst.len() > 0xFF || message.len() > 0xFFFF_FFFF_FFFF_FFFF {
-        panic!("Invalid DST or message length");
-    }
-    // 2. dst_prime = I2OSP(length(dst), 1) || dst
-    let dst_prime = [dst.len().to_osp(1), dst.to_vec()].concat();
+    // 1. msg_for_hash = encode_for_hash(msg)
+    let msg_for_hash = message.encode_for_hash();
 
-    // 3. msg_prime = I2OSP(length(msg), 8) || msg
-    let msg_prime = [message.len().to_osp(8), message.to_vec()].concat();
-
-    // 4. result = hash_to_scalar(msg_prime || dst_prime, 1)
-    let result = hash_to_scalar::<Bls12381Sha256>([msg_prime, dst_prime].concat().as_slice(), 1);
+    // 2. if msg_for_hash is INVALID, return INVALID
+    // 3. if length(dst) > 255, return INVALID
+    // 4. return hash_to_scalar(msg_for_hash, 1, dst)
+    let result = hash_to_scalar::<T>(&msg_for_hash, 1, Some(dst));
     assert_eq!(1, result.len());
 
     result[0]
@@ -31,11 +29,12 @@ pub fn map_message_to_scalar_as_hash<'a, T: BbsCiphersuite<'a>>(message: &[u8]) 
 pub(crate) fn hash_to_scalar<'a, T: BbsCiphersuite<'a>>(
     msg_octets: &[u8],
     count: usize,
+    dst: Option<Vec<u8>>,
 ) -> Vec<Scalar> {
-    const EXPAND_LEN: usize = 48;
+    let dst = dst.unwrap_or(T::hash_to_scalar_dst());
 
     // 1.  len_in_bytes = count * expand_len
-    let len_in_bytes = count * EXPAND_LEN;
+    let len_in_bytes = count * OCTET_POINT_LENGTH;
 
     // 2.  t = 0
     let mut t = 0;
@@ -47,7 +46,7 @@ pub(crate) fn hash_to_scalar<'a, T: BbsCiphersuite<'a>>(
     let mut uniform_bytes = vec![0u8; len_in_bytes];
     T::Expander::expand_message(
         msg_prime.as_slice(),
-        T::hash_to_scalar_dst().as_slice(),
+        dst.as_slice(),
         uniform_bytes.as_mut_slice(),
     );
 
@@ -60,7 +59,7 @@ pub(crate) fn hash_to_scalar<'a, T: BbsCiphersuite<'a>>(
     let mut result = Vec::new();
     for i in 0..count {
         result.push(Scalar::from_okm(
-            uniform_bytes[i * EXPAND_LEN..(i + 1) * EXPAND_LEN]
+            uniform_bytes[i * OCTET_POINT_LENGTH..(i + 1) * OCTET_POINT_LENGTH]
                 .try_into()
                 .unwrap(),
         ));

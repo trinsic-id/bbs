@@ -2,6 +2,9 @@ use bls12_381_plus::{ExpandMsg, ExpandMsgXmd, ExpandMsgXof};
 use sha2::Sha256;
 use sha3::Shake256;
 
+pub(crate) const OCTET_SCALAR_LENGTH: usize = 32;
+pub(crate) const OCTET_POINT_LENGTH: usize = 48;
+
 pub trait BbsCiphersuite<'a> {
     const CIPHERSUITE_ID: &'a [u8];
 
@@ -26,6 +29,9 @@ pub trait BbsCiphersuite<'a> {
 
     fn hash_to_scalar_dst() -> Vec<u8> {
         [Self::CIPHERSUITE_ID, b"HASH_TO_SCALAR_"].concat()
+    }
+    fn map_msg_to_scalar_as_hash_dst() -> Vec<u8> {
+        [Self::CIPHERSUITE_ID, b"MAP_MSG_TO_SCALAR_AS_HASH_"].concat()
     }
 }
 

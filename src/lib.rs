@@ -1,87 +1,24 @@
 use std::ops::Neg;
 
 use bls12_381_plus::{
-    multi_miller_loop, ExpandMsg, ExpandMsgXmd, G1Affine, G1Projective, G2Affine, G2Prepared,
-    G2Projective, Gt, Scalar,
+    multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar,
 };
-use ciphersuite::BbsCiphersuite;
+use ciphersuite::{BbsCiphersuite, OCTET_POINT_LENGTH};
 use encoding::{I2OSP, OS2IP};
 use hashing::{hash_to_scalar, EncodeForHash};
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 
-use crate::ciphersuite::Bls12381Sha256;
+use crate::{ciphersuite::Bls12381Sha256, generators::create_generators};
 
 mod ciphersuite;
 mod encoding;
+mod generators;
 mod hashing;
 
 type SecretKey = Scalar;
 type PublicKey = G2Projective;
 type OctetString = Vec<u8>;
-
-struct Generators {
-    base_point: G1Projective,
-    Q1: G1Projective,
-    Q2: G1Projective,
-    message_generators: Vec<G1Projective>,
-}
-
-fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Generators {
-    if count < 2 {
-        panic!("count must be greater than 1");
-    }
-
-    let generator_seed = T::generator_seed();
-    let seed_dst = T::generator_seed_dst();
-    let generator_dst = T::generator_dst();
-    const seed_len: usize = 48;
-
-    let mut bytes = [0u8; 48];
-    hex::decode_to_slice("8533b3fbea84e8bd9ccee177e3c56fbe1d2e33b798e491228f6ed65bb4d1e0ada07bcc4489d8751f8ba7a1b69b6eecd7", &mut bytes);
-
-    let P1: G1Projective = G1Affine::from_compressed(&bytes).unwrap().into();
-
-    // 1.  v = expand_message(generator_seed, seed_dst, seed_len)
-    let mut v = [0u8; seed_len];
-    ExpandMsgXmd::<Sha256>::expand_message(generator_seed.as_slice(), seed_dst.as_slice(), &mut v);
-
-    // 2.  n = 1
-    let mut n = 1i32;
-
-    // 3.  for i in range(1, count):
-    let mut generators = Vec::new();
-    while generators.len() < count {
-        // 4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
-        ExpandMsgXmd::<Sha256>::expand_message(
-            [v.to_vec(), n.to_osp(4)].concat().as_slice(),
-            seed_dst.as_slice(),
-            &mut v,
-        );
-
-        // 5.     n = n + 1
-        n += 1;
-
-        // 6.     generator_i = Identity_G1
-        // 7.     candidate = hash_to_curve_g1(v, generator_dst)
-        let candidate = G1Projective::hash::<T::Expander>(&v, generator_dst.as_slice());
-
-        // 8.     if candidate in (generator_1, ..., generator_i):
-        // 9.        go back to step 4
-        if !generators.contains(&candidate) && candidate != G1Projective::identity() {
-            // 10.    generator_i = candidate
-            generators.push(candidate);
-        }
-    }
-
-    // 11. return (generator_1, ..., generator_count)
-    Generators {
-        base_point: P1,
-        Q1: generators[0],
-        Q2: generators[1],
-        message_generators: generators[2..].to_vec(),
-    }
-}
 
 struct Signature {
     pub A: G1Projective,
@@ -98,25 +35,27 @@ impl Signature {
     pub fn to_octet_string(&self) -> OctetString {
         [
             self.A.encode_for_hash(),
-            self.e.to_osp(48),
-            self.s.to_osp(48),
+            self.e.to_osp(OCTET_POINT_LENGTH),
+            self.s.to_osp(OCTET_POINT_LENGTH),
         ]
         .concat()
     }
 
     pub fn from_octet_string(octet_string: &OctetString) -> Result<Signature, Error> {
-        let A = G1Affine::from_compressed(&octet_string[0..48].try_into().unwrap())
+        let A = G1Affine::from_compressed(&octet_string[0..OCTET_POINT_LENGTH].try_into().unwrap())
             .unwrap()
             .into();
-        let e = Scalar::from_osp(&octet_string[48..96].to_vec());
-        let s = Scalar::from_osp(&octet_string[96..144].to_vec());
+        let e =
+            Scalar::from_osp(&octet_string[OCTET_POINT_LENGTH..OCTET_POINT_LENGTH * 2].to_vec());
+        let s = Scalar::from_osp(
+            &octet_string[OCTET_POINT_LENGTH * 2..OCTET_POINT_LENGTH * 3].to_vec(),
+        );
 
         Ok(Signature { A, s, e })
     }
 }
 
 fn key_gen<T: AsRef<[u8]>>(ikm: T, key_info: &[u8]) -> SecretKey {
-    let L = 48i16; // ceil((3 * ceil(log2(q))) / 16) // TODO: double check the value
     if ikm.as_ref().len() < 32 {
         panic!("Input Keying Material (IKM) too short, MUST be at least 32 bytes");
     }
@@ -137,11 +76,14 @@ fn key_gen<T: AsRef<[u8]>>(ikm: T, key_info: &[u8]) -> SecretKey {
             .as_slice(),
     );
     // 6.     OKM = HKDF-Expand(PRK, key_info || I2OSP(L, 2), L)
-    let mut okm = [0u8; 48];
+    let mut okm = [0u8; OCTET_POINT_LENGTH];
     hk.expand(
-        vec![key_info.as_ref()[..].as_ref(), L.to_be_bytes().as_slice()]
-            .concat()
-            .as_slice(),
+        vec![
+            key_info.as_ref()[..].as_ref(),
+            OCTET_POINT_LENGTH.to_be_bytes().as_slice(),
+        ]
+        .concat()
+        .as_slice(),
         &mut okm,
     )
     .expect("42 is a valid length for Sha256 to output");
@@ -187,7 +129,7 @@ fn sign<'a, T: BbsCiphersuite<'a>>(
     .concat();
 
     // 4.  domain = hash_to_scalar(dom_for_hash, 1)
-    let domain = hash_to_scalar::<Bls12381Sha256>(dom_for_hash.as_slice(), 1);
+    let domain = hash_to_scalar::<Bls12381Sha256>(dom_for_hash.as_slice(), 1, None);
     assert_eq!(domain.len(), 1, "incorrect domain scalar length");
 
     let domain = domain[0];
@@ -205,7 +147,7 @@ fn sign<'a, T: BbsCiphersuite<'a>>(
     .concat();
 
     // 7.  (e, s) = hash_to_scalar(e_s_for_hash, 2)
-    let e_s = hash_to_scalar::<Bls12381Sha256>(e_s_for_hash.as_slice(), 2);
+    let e_s = hash_to_scalar::<Bls12381Sha256>(e_s_for_hash.as_slice(), 2, None);
     assert_eq!(e_s.len(), 2, "incorrect e_s scalar length");
     let e = e_s[0];
     let s = e_s[1];
@@ -258,7 +200,7 @@ fn verify<'a, T: BbsCiphersuite<'a>>(
     .concat();
 
     // 9.  domain = hash_to_scalar(dom_for_hash, 1)
-    let domain = hash_to_scalar::<Bls12381Sha256>(dom_for_hash.as_slice(), 1);
+    let domain = hash_to_scalar::<Bls12381Sha256>(dom_for_hash.as_slice(), 1, None);
     assert_eq!(domain.len(), 1, "incorrect domain scalar length");
 
     let domain = domain[0];
@@ -405,7 +347,7 @@ mod tests {
             Some(
                 messages
                     .iter()
-                    .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_slice()))
+                    .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_slice(), None))
                     .collect(),
             ),
         );
@@ -417,7 +359,7 @@ mod tests {
             Some(
                 messages
                     .iter()
-                    .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_slice()))
+                    .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_slice(), None))
                     .collect(),
             ),
         );
