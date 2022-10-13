@@ -1,40 +1,42 @@
 use crate::{
-    ciphersuite::{BbsCiphersuite, OCTET_POINT_LENGTH},
+    ciphersuite::{BbsCiphersuite, SEED_LEN},
     encoding::I2OSP,
 };
 pub use bls12_381_plus::{ExpandMsg, G1Projective};
 pub(crate) struct Generators {
-    pub(crate) base_point: G1Projective,
+    pub(crate) BP: G1Projective,
     pub(crate) Q1: G1Projective,
     pub(crate) Q2: G1Projective,
     pub(crate) message_generators: Vec<G1Projective>,
 }
 
-pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Generators {
+pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(
+    seed: Option<&[u8]>,
+    count: usize,
+) -> Generators {
     if count < 2 {
         panic!("count must be greater than 1");
     }
 
-    let generator_seed = T::generator_seed();
-    let seed_dst = T::generator_seed_dst();
-    let generator_dst = T::generator_dst();
+    let default_seed = &T::generator_seed();
+    let seed = seed.unwrap_or(&default_seed);
 
     let P1 = make_g1_base_point::<T>();
 
     // 1.  v = expand_message(generator_seed, seed_dst, seed_len)
-    let mut v = [0u8; OCTET_POINT_LENGTH];
-    T::Expander::expand_message(generator_seed.as_slice(), seed_dst.as_slice(), &mut v);
+    let mut v = [0u8; SEED_LEN];
+    T::Expander::expand_message(seed, &T::generator_seed_dst(), &mut v);
 
     // 2.  n = 1
-    let mut n = 1i32;
+    let mut n = 1usize;
 
     // 3.  for i in range(1, count):
     let mut generators = Vec::new();
     while generators.len() < count {
         // 4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
         T::Expander::expand_message(
-            [v.to_vec(), n.to_osp(4)].concat().as_slice(),
-            seed_dst.as_slice(),
+            &[v.as_slice(), &n.to_osp(4)].concat(),
+            &T::generator_seed_dst(),
             &mut v,
         );
 
@@ -43,7 +45,7 @@ pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Gene
 
         // 6.     generator_i = Identity_G1
         // 7.     candidate = hash_to_curve_g1(v, generator_dst)
-        let candidate = G1Projective::hash::<T::Expander>(&v, generator_dst.as_slice());
+        let candidate = G1Projective::hash::<T::Expander>(&v, &T::generator_dst());
 
         // 8.     if candidate in (generator_1, ..., generator_i):
         // 9.        go back to step 4
@@ -55,7 +57,7 @@ pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Gene
 
     // 11. return (generator_1, ..., generator_count)
     Generators {
-        base_point: P1,
+        BP: P1,
         Q1: generators[0],
         Q2: generators[1],
         message_generators: generators[2..].to_vec(),
@@ -63,13 +65,33 @@ pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Gene
 }
 
 fn make_g1_base_point<'a, T: BbsCiphersuite<'a>>() -> G1Projective {
-    let mut v = [0u8; OCTET_POINT_LENGTH];
+    let mut v = [0u8; SEED_LEN];
     T::Expander::expand_message(&T::bp_generator_seed(), &T::generator_seed_dst(), &mut v);
 
-    let extra = 1.to_osp(4);
-    let buffer = [v.as_ref(), &extra].concat();
+    let extra = 1usize.to_osp(4);
+    let buffer = [v.as_slice(), &extra].concat();
 
     T::Expander::expand_message(&buffer, &T::generator_seed_dst(), &mut v);
 
     G1Projective::hash::<T::Expander>(&v, &T::generator_dst())
+}
+
+mod test {
+    use crate::{
+        ciphersuite::Bls12381Sha256, generators::create_generators, hashing::EncodeForHash,
+    };
+
+    #[test]
+    fn create_generators_test() {
+        let generators = create_generators::<Bls12381Sha256>(None, 12);
+
+        assert_eq!(10, generators.message_generators.len());
+
+        println!("BP: {:?}", hex::encode(generators.BP.encode_for_hash()));
+        println!("Q1: {:?}", hex::encode(generators.Q1.encode_for_hash()));
+        println!("Q2: {:?}", hex::encode(generators.Q2.encode_for_hash()));
+        for g in generators.message_generators {
+            println!("generator: {:?}", hex::encode(g.encode_for_hash()));
+        }
+    }
 }

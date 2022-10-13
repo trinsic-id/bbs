@@ -5,6 +5,12 @@ use sha3::Shake256;
 pub(crate) const OCTET_SCALAR_LENGTH: usize = 32;
 pub(crate) const OCTET_POINT_LENGTH: usize = 48;
 
+// https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-bls12-381-g1
+// r: 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
+// k: 128
+// seed_len = ceil((ceil(log2(r)) + k)/8), where r and k are defined by the ciphersuite.
+pub(crate) const SEED_LEN: usize = 48;
+
 pub trait BbsCiphersuite<'a> {
     const CIPHERSUITE_ID: &'a [u8];
 
@@ -16,7 +22,7 @@ pub trait BbsCiphersuite<'a> {
 
     // The G1 base point generator seed
     fn bp_generator_seed() -> Vec<u8> {
-        [Self::CIPHERSUITE_ID, b"MESSAGE_GENERATOR_SEED"].concat()
+        [Self::CIPHERSUITE_ID, b"BP_MESSAGE_GENERATOR_SEED"].concat()
     }
 
     fn generator_seed_dst() -> Vec<u8> {

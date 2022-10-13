@@ -108,7 +108,7 @@ fn sign<'a, T: BbsCiphersuite<'a>>(
     let L = messages.len();
 
     // 2. (Q_1, Q_2, H_1, ..., H_L) = create_generators(generator_seed, L+2)
-    let generators = create_generators::<T>(L + 2);
+    let generators = create_generators::<T>(None, L + 2);
 
     // 1.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 2.  dom_for_hash = encode_for_hash(dom_array)
@@ -153,7 +153,7 @@ fn sign<'a, T: BbsCiphersuite<'a>>(
     let s = e_s[1];
 
     // 8.  B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
-    let B = generators.base_point
+    let B = generators.BP
         + generators.Q1 * s
         + generators.Q2 * domain
         + generators
@@ -179,7 +179,7 @@ fn verify<'a, T: BbsCiphersuite<'a>>(
     let messages = messages.unwrap_or_default();
 
     let L = messages.len();
-    let generators = create_generators::<T>(L + 2);
+    let generators = create_generators::<T>(None, L + 2);
 
     // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 7.  dom_for_hash = encode_for_hash(dom_array)
@@ -206,7 +206,7 @@ fn verify<'a, T: BbsCiphersuite<'a>>(
     let domain = domain[0];
 
     // 10. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
-    let B = generators.base_point
+    let B = generators.BP
         + generators.Q1 * signature.s
         + generators.Q2 * domain
         + generators
@@ -248,21 +248,6 @@ mod tests {
         assert_eq!(i.to_osp(1).len(), 1);
         assert_eq!(i.to_osp(3).len(), 3);
         assert_eq!(i.to_osp(3), vec![0, 0, 42]);
-    }
-
-    #[test]
-    fn create_generators_test() {
-        let generators = create_generators::<Bls12381Sha256>(12);
-
-        println!(
-            "base point: {:?}",
-            hex::encode(generators.base_point.encode_for_hash())
-        );
-        println!("Q1: {:?}", hex::encode(generators.Q1.encode_for_hash()));
-        println!("Q2: {:?}", hex::encode(generators.Q2.encode_for_hash()));
-        for g in generators.message_generators {
-            println!("generator: {:?}", hex::encode(g.encode_for_hash()));
-        }
     }
 
     #[test]
