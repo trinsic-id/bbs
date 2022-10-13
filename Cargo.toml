@@ -9,6 +9,6 @@ edition = "2021"
 bls12_381_plus = { version = "0.7.0", features = ["hashing"] }
 rand = "0.8.5"
 hkdf = "0.11.0"
-sha2 = "0.9"
+sha2 = "0.10"
 sha3 = "0.9"
 hex = "0.4.3"
