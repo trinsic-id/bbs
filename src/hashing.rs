@@ -1,7 +1,7 @@
 use bls12_381_plus::{ExpandMsg, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 
 use crate::{
-    ciphersuite::{BbsCiphersuite, Bls12381Sha256, OCTET_POINT_LENGTH},
+    ciphersuite::{BbsCiphersuite, OCTET_POINT_LENGTH},
     encoding::I2OSP,
 };
 
@@ -65,12 +65,6 @@ pub(crate) fn hash_to_scalar<'a, T: BbsCiphersuite<'a>>(
         ));
     }
     result
-}
-
-#[test]
-fn t() {
-    let i = (1 as u8).to_be_bytes();
-    println!("{:?}", i);
 }
 
 pub(crate) trait EncodeForHash {
@@ -150,5 +144,16 @@ impl EncodeForHash for Scalar {
         // to ensure they are in big endian
         i.reverse();
         i.to_vec()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::EncodeForHash;
+
+    #[test]
+    fn test_encode() {
+        let s = "hello world".encode_for_hash();
+        assert_eq!(11 + 8, s.len());
     }
 }

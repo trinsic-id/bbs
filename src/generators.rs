@@ -76,6 +76,7 @@ fn make_g1_base_point<'a, T: BbsCiphersuite<'a>>() -> G1Projective {
     G1Projective::hash::<T::Expander>(&v, &T::generator_dst())
 }
 
+#[cfg(test)]
 mod test {
     use crate::{
         ciphersuite::Bls12381Sha256, generators::create_generators, hashing::EncodeForHash,

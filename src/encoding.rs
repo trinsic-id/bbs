@@ -50,3 +50,17 @@ impl OS2IP for Scalar {
         Scalar::from_bytes(i.as_slice().try_into().unwrap()).unwrap()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::encoding::I2OSP;
+
+    #[test]
+    fn to_octet_string_test() {
+        let i = 42usize;
+
+        assert_eq!(i.to_osp(1).len(), 1);
+        assert_eq!(i.to_osp(3).len(), 3);
+        assert_eq!(i.to_osp(3), vec![0, 0, 42]);
+    }
+}
