@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 bls12_381_plus = { version = "0.7.0", features = ["hashing"] }
 rand = "0.8.5"
-hkdf = "0.11.0"
+hkdf = "0.12.3"
 sha2 = "0.9"
 sha3 = "0.9"
 hex = "0.4.3"
