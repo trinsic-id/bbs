@@ -34,7 +34,7 @@ pub trait BbsCiphersuite<'a> {
     }
 
     fn hash_to_scalar_dst() -> Vec<u8> {
-        [Self::CIPHERSUITE_ID, b"HASH_TO_SCALAR_"].concat()
+        [Self::CIPHERSUITE_ID, b"H2S_"].concat()
     }
     fn map_msg_to_scalar_as_hash_dst() -> Vec<u8> {
         [Self::CIPHERSUITE_ID, b"MAP_MSG_TO_SCALAR_AS_HASH_"].concat()

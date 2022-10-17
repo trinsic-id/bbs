@@ -19,8 +19,8 @@ impl Signature {
     pub fn to_bytes(&self) -> Vec<u8> {
         [
             self.A.encode_for_hash(),
-            self.e.i2osp(POINT_LEN),
-            self.s.i2osp(POINT_LEN),
+            self.e.i2osp(SCALAR_LEN),
+            self.s.i2osp(SCALAR_LEN),
         ]
         .concat()
     }
@@ -190,48 +190,46 @@ mod test {
     use bls12_381_plus::Scalar;
     use hex_literal::hex;
 
-    use crate::{encoding::*, hashing::*, key::*, signature::*};
+    use crate::{encoding::*, key::*, signature::*};
 
     #[test]
-    fn signature_test() {
+    fn signature_test_sha() {
         let bytes = hex!("47d2ede63ab4c329092b342ab526b1079dbc2595897d4f2ab2de4d841cbe7d56");
-        let sk = Scalar::os2ip(&bytes);
-        let pk = sk_to_pk(&sk);
+        let sk = SecretKey(Scalar::os2ip(&bytes));
+        let pk = sk.public_key();
 
-        type Ciphersuite = Bls12381Shake256;
-
-        println!("sk: {}", SecretKey(sk));
-        println!("pk: {}", PublicKey(pk));
+        println!("sk: {}", sk);
+        println!("pk: {}", pk);
 
         let header = b"11223344556677889900aabbccddeeff";
         let messages = [hex!(
             "9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"
         )];
+        let expected = hex!("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44");
+        let expected = Signature::from_bytes(&expected).unwrap();
 
-        let _expected = hex!("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44");
+        let bbs = Bbs::<Bls12381Sha256>::new(header);
 
-        let actual = sign_impl::<Ciphersuite>(
+        let actual = bbs.sign(
             &sk,
-            header,
             &messages
                 .iter()
-                .map(|m| map_message_to_scalar_as_hash::<Ciphersuite>(m.as_slice(), &[]))
+                .map(|m| bbs.message(m.as_slice()))
                 .collect::<Vec<_>>(),
         );
 
-        let verify = verify_impl::<Ciphersuite>(
+        let verify = bbs.verify(
             &pk,
-            &actual,
-            header,
             &messages
                 .iter()
-                .map(|m| map_message_to_scalar_as_hash::<Ciphersuite>(m.as_slice(), &[]))
+                .map(|m| bbs.message(m.as_slice()))
                 .collect::<Vec<_>>(),
+            &actual,
         );
 
         assert!(verify);
 
-        //assert_eq!(actual, _expected);
+        assert_eq!(actual, expected);
     }
 
     #[test]
