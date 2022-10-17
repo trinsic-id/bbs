@@ -45,7 +45,7 @@ where
     let len_in_bytes = count * POINT_LEN;
 
     // 2.  t = 0
-    let mut t = 0;
+    let mut t = 0usize;
 
     // 3.  msg_prime = msg_octets || I2OSP(t, 1) || I2OSP(count, 4)
     let msg_prime = [msg_octets, &t.i2osp(1), &count.i2osp(4)].concat();
@@ -83,13 +83,13 @@ impl EncodeForHash for dyn AsRef<[u8]> {
 
 impl EncodeForHash for &str {
     fn encode_for_hash(&self) -> Vec<u8> {
-        [&self.len().encode_for_hash(), self.as_bytes()].concat()
+        self.as_bytes().encode_for_hash()
     }
 }
 
 impl EncodeForHash for &[u8] {
     fn encode_for_hash(&self) -> Vec<u8> {
-        [self.len().encode_for_hash(), self.to_vec()].concat()
+        [self.len().i2osp(8), self.to_vec()].concat()
     }
 }
 

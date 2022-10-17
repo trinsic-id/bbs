@@ -16,13 +16,12 @@ pub trait BbsCiphersuite<'a> {
 
     type Expander: ExpandMsg;
 
-    fn generator_seed() -> Vec<u8> {
-        [Self::CIPHERSUITE_ID, b"MESSAGE_GENERATOR_SEED"].concat()
-    }
-
-    // The G1 base point generator seed
     fn bp_generator_seed() -> Vec<u8> {
         [Self::CIPHERSUITE_ID, b"BP_MESSAGE_GENERATOR_SEED"].concat()
+    }
+
+    fn generator_seed() -> Vec<u8> {
+        [Self::CIPHERSUITE_ID, b"MESSAGE_GENERATOR_SEED"].concat()
     }
 
     fn generator_seed_dst() -> Vec<u8> {

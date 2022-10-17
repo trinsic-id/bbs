@@ -122,7 +122,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // prf_len = ceil(ceil(log2(r))/8), where r defined by the ciphersuite.
     const PRF_LEN: usize = 32;
 
-    let generators = create_generators::<T>(None, L + 2);
+    let generators = create_generators::<T>(&[], L + 2);
 
     // Precomputations:
 
@@ -312,7 +312,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     }
 
     // 4. (Q_1, Q_2, MsgGenerators) = create_generators(L+2)
-    let generators = create_generators::<T>(None, L + 2);
+    let generators = create_generators::<T>(&[], L + 2);
 
     // Preconditions:
 

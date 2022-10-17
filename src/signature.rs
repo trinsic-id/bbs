@@ -76,7 +76,7 @@ where
     let L = messages.len();
 
     // 2. (Q_1, Q_2, H_1, ..., H_L) = create_generators(generator_seed, L+2)
-    let generators = create_generators::<T>(None, L + 2);
+    let generators = create_generators::<T>(&T::generator_seed(), L + 2);
 
     // 1.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 2.  dom_for_hash = encode_for_hash(dom_array)
@@ -134,7 +134,7 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(
     messages: &[Scalar],
 ) -> bool {
     let L = messages.len();
-    let generators = create_generators::<T>(None, L + 2);
+    let generators = create_generators::<T>(&[], L + 2);
 
     // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 7.  dom_for_hash = encode_for_hash(dom_array)

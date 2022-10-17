@@ -118,10 +118,12 @@ pub(crate) fn sk_to_pk(sk: &Scalar) -> G2Projective {
 
 #[cfg(test)]
 mod test {
-    use bls12_381_plus::{G2Projective, Scalar};
+    use bls12_381_plus::{G2Affine, G2Projective, Scalar};
     use hex_literal::hex;
 
-    use super::SecretKey;
+    use crate::{encoding::OS2IP, hashing::EncodeForHash};
+
+    use super::{sk_to_pk, SecretKey};
 
     #[test]
     fn get_random_key() {
@@ -142,5 +144,16 @@ mod test {
 
         println!("sk: {}", sk);
         println!("pk: {}", pk);
+    }
+
+    #[test]
+    fn sk_to_pk_test() {
+        let sk = hex!("47d2ede63ab4c329092b342ab526b1079dbc2595897d4f2ab2de4d841cbe7d56");
+        let expected_pk = hex!("b65b7cbff4e81b723456a13936b6bcc77a078bf6291765f3ae13170072249dd7daa7ec1bd82b818ab60198030b45b8fa159c155fc3841a9ad4045e37161c9f0d9a4f361b93cfdc67d365f3be1a398e56aa173d7a55e01b4a8dd2494e7fb90da7");
+
+        let actual_pk = sk_to_pk(&Scalar::os2ip(&sk));
+
+        assert_eq!(expected_pk, G2Affine::from(actual_pk).to_compressed());
+        assert_eq!(expected_pk.as_slice(), &actual_pk.encode_for_hash());
     }
 }
