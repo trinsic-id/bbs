@@ -5,7 +5,6 @@
 use encoding::Message;
 use itertools::Itertools;
 use prelude::*;
-use subtle::CtOption;
 
 mod ciphersuite;
 mod encoding;
@@ -34,7 +33,7 @@ where
 
 impl<'a, T> Bbs<'a, T>
 where
-    T: BbsCiphersuite<'a> + Default,
+    T: BbsCiphersuite<'a>,
 {
     pub fn new(header: &'a [u8]) -> Self {
         Self {
@@ -43,9 +42,32 @@ where
         }
     }
 
-    /// Map an ocsted string to a scalar message
+    /// Map an octet string to a scalar message
     ///
     /// * See [MapMessageToScalarAsHash](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-mapmessagetoscalarashash)
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// use bbs::prelude::*;
+    ///
+    /// let bbs = Bbs::<Bls12381Sha256>::default();
+    /// let message = bbs.message("Hello, world!");
+    /// ```
+    ///
+    /// Using with [`iter::map`](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map):
+    ///
+    /// ```
+    /// use bbs::prelude::*;
+    ///
+    /// let bbs = Bbs::<Bls12381Sha256>::default();
+    /// let messages = ["hello", "world"]
+    ///   .iter()
+    ///   .map(|m| bbs.message(m))
+    ///   .collect::<Vec<_>>();
+    /// ```
     pub fn message<M: AsRef<[u8]>>(&self, buf: M) -> Message
     where
         M: AsRef<[u8]>,
@@ -56,12 +78,22 @@ where
         ))
     }
 
-    /// Map a message to a scalar message with custom domain separation tag
+    /// Map an octet string to a scalar message using a domain separation tag
     ///
     /// * See [MapMessageToScalarAsHash](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-mapmessagetoscalarashash)
-    pub fn message_with<M: AsRef<[u8]>>(buf: M, dst: M) -> Message
+    ///
+    /// ## Examples
+    /// ```
+    /// use bbs::prelude::*;
+    ///
+    /// let bbs = Bbs::<Bls12381Sha256>::default();
+    ///
+    /// let message = bbs.message_with("Hello, world!", "MY DST");
+    /// ```
+    pub fn message_with<M, D>(&self, buf: M, dst: D) -> Message
     where
         M: AsRef<[u8]>,
+        D: AsRef<[u8]>,
     {
         Message(hashing::map_message_to_scalar_as_hash::<T>(
             buf.as_ref(),
@@ -128,6 +160,12 @@ where
         )
     }
 
+    /// Create a proof of knowledge of a signature
+    ///
+    /// _Computes a zero-knowledge proof-of-knowledge of a signature,
+    /// while optionally selectively disclosing from the original set of signed messages._
+    ///
+    /// Specification [3.4.3. ProofGen](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofgen)
     pub fn create_proof(
         &self,
         pk: &PublicKey,
@@ -138,6 +176,9 @@ where
         self.create_proof_with(pk, signature, messages, revealed, &[])
     }
 
+    /// Create a proof of signature knowledge
+    ///
+    ///
     pub fn create_proof_with(
         &self,
         pk: &PublicKey,
@@ -201,20 +242,6 @@ pub enum Error {
     InvalidSignature,
     InvalidProof,
     HkdfExpandError,
-}
-
-trait OkOr<T> {
-    fn ok_or(self, err: Error) -> Result<T, Error>;
-}
-
-impl<T> OkOr<T> for CtOption<T> {
-    fn ok_or(self, err: Error) -> Result<T, Error> {
-        if self.is_some().into() {
-            Ok(self.unwrap())
-        } else {
-            Err(err)
-        }
-    }
 }
 
 #[cfg(test)]
