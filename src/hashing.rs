@@ -12,7 +12,7 @@ where
     T: BbsCiphersuite<'a>,
 {
     let dst = if dst.is_empty() {
-        [T::CIPHERSUITE_ID, &T::map_msg_to_scalar_as_hash_dst()].concat()
+        T::map_msg_to_scalar_as_hash_dst()
     } else {
         dst.into()
     };
@@ -35,7 +35,7 @@ where
     T: BbsCiphersuite<'a>,
 {
     let dst = if dst.is_empty() {
-        [T::CIPHERSUITE_ID, &T::hash_to_scalar_dst()].concat()
+        T::hash_to_scalar_dst()
     } else {
         dst.into()
     };
@@ -162,9 +162,9 @@ mod test {
 
     #[test]
     fn map_message_to_scalar_test() {
-        let dst = hex!("4242535f424c53313233383147315f584d443a5348412d3235365f535357555f524f5f4d41505f4d4553534147455f544f5f5343414c41525f41535f484153485f");
+        let dst = hex!("4242535f424c53313233383147315f584d443a5348412d3235365f535357555f524f5f4d41505f4d53475f544f5f5343414c41525f41535f484153485f");
         let message = hex!("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
-        let expected = hex!("45d23990955655bc3bcd91a3bc974df8ced44a35ab1043de0498d61e66f7af26");
+        let expected = hex!("360097633e394c22601426bd9f8d5b95f1c64f89689deee230e817925dee4724");
         let expected_s = Scalar::os2ip(&expected);
 
         let actual = map_message_to_scalar_as_hash::<Bls12381Sha256>(&message, &dst);
