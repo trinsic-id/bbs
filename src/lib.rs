@@ -2,6 +2,8 @@
 #![allow(non_snake_case)]
 #![allow(unused_mut)]
 
+use std::array::TryFromSliceError;
+
 use encoding::Message;
 use itertools::Itertools;
 use prelude::*;
@@ -13,6 +15,9 @@ mod hashing;
 mod key;
 mod proof;
 mod signature;
+#[macro_use]
+#[cfg(test)]
+mod tests;
 
 pub mod prelude {
     pub use crate::ciphersuite::*;
@@ -27,17 +32,17 @@ pub struct Bbs<'a, T>
 where
     T: BbsCiphersuite<'a>,
 {
-    phantom: std::marker::PhantomData<T>,
-    header: &'a [u8],
+    pub(crate) ciphersuite: T,
+    pub(crate) header: &'a [u8],
 }
 
 impl<'a, T> Bbs<'a, T>
 where
-    T: BbsCiphersuite<'a>,
+    T: BbsCiphersuite<'a> + Default,
 {
     pub fn new(header: &'a [u8]) -> Self {
         Self {
-            phantom: Default::default(),
+            ciphersuite: T::default(),
             header,
         }
     }
@@ -242,6 +247,13 @@ pub enum Error {
     InvalidSignature,
     InvalidProof,
     HkdfExpandError,
+    SerializationError,
+}
+
+impl From<TryFromSliceError> for Error {
+    fn from(_: TryFromSliceError) -> Self {
+        Error::SerializationError
+    }
 }
 
 #[cfg(test)]
@@ -279,8 +291,8 @@ mod test {
         assert!(verify_result);
 
         // test serialization
-        let proof_bytes = proof.to_vec();
-        let proof_ = Proof::from_vec(&proof_bytes).unwrap();
+        let proof_bytes = proof.to_bytes();
+        let proof_ = Proof::from_bytes(&proof_bytes).unwrap();
 
         println!("proof: {:#?}", proof);
 

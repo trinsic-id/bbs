@@ -21,7 +21,7 @@ pub struct Proof {
 }
 
 impl Proof {
-    pub fn to_vec(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         [
             &G1Affine::from(self.A_prime).to_compressed()[..],
             &G1Affine::from(self.A_bar).to_compressed(),
@@ -41,18 +41,20 @@ impl Proof {
         .concat()
     }
 
-    pub fn from_vec(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Result<Self, Error> {
         const P: usize = POINT_LEN;
         const S: usize = SCALAR_LEN;
 
+        let bytes = bytes.as_ref();
+
         // courtesy of github copilot
-        let A_prime = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[..P]).unwrap())
+        let A_prime = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[..P])?)
             .map(G1Projective::from)
             .unwrap();
-        let A_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P]).unwrap())
+        let A_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P])?)
             .map(G1Projective::from)
             .unwrap();
-        let D = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[2 * P..3 * P]).unwrap())
+        let D = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[2 * P..3 * P])?)
             .map(G1Projective::from)
             .unwrap();
         let c = Scalar::os2ip(&bytes[3 * P..3 * P + S]);
@@ -83,7 +85,7 @@ impl Proof {
 
 impl Debug for Proof {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let tmp = self.to_vec();
+        let tmp = self.to_bytes();
         write!(f, "0x")?;
         for &b in tmp.iter() {
             write!(f, "{:02x}", b)?;
@@ -426,46 +428,107 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
 
 #[cfg(test)]
 mod test {
-    use bls12_381_plus::{G2Affine, G2Projective, Scalar};
+
+    use crate::prelude::*;
+    use bls12_381_plus::{G2Affine, G2Projective};
+    use fluid::prelude::*;
     use hex_literal::hex;
 
-    use crate::{ciphersuite::Bls12381Sha256, signature::Signature};
+    use super::Proof;
 
-    use super::{proof_gen_impl, Proof};
+    #[theory]
+    #[case("bls12-381-sha-256/proof/proof001.json")]
+    #[case("bls12-381-sha-256/proof/proof002.json")]
+    #[case("bls12-381-sha-256/proof/proof003.json")]
+    #[case("bls12-381-sha-256/proof/proof004.json")]
+    #[case("bls12-381-sha-256/proof/proof005.json")]
+    #[case("bls12-381-sha-256/proof/proof006.json")]
+    #[case("bls12-381-sha-256/proof/proof007.json")]
+    #[case("bls12-381-sha-256/proof/proof008.json")]
+    #[case("bls12-381-sha-256/proof/proof009.json")]
+    #[case("bls12-381-sha-256/proof/proof010.json")]
+    #[case("bls12-381-sha-256/proof/proof011.json")]
+    #[case("bls12-381-sha-256/proof/proof012.json")]
+    #[case("bls12-381-sha-256/proof/proof013.json")]
+    fn proof_suite_1(file: &str) {
+        let input = &fixture!(tests::Proof, file);
+        let header = hex::decode(&input.header).unwrap();
 
-    #[test]
-    fn test_proof_gen() {
-        let signature = hex!("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44");
-        let signature = Signature::from_bytes(&signature).unwrap();
+        let bbs = Bbs::<Bls12381Sha256>::new(&header);
+        proof_test::<Bls12381Sha256>(&input, bbs);
+    }
 
-        let pk = hex!("b65b7cbff4e81b723456a13936b6bcc77a078bf6291765f3ae13170072249dd7daa7ec1bd82b818ab60198030b45b8fa159c155fc3841a9ad4045e37161c9f0d9a4f361b93cfdc67d365f3be1a398e56aa173d7a55e01b4a8dd2494e7fb90da7");
-        let pk = G2Projective::from(G2Affine::from_compressed(&pk).unwrap());
+    #[theory]
+    #[case("bls12-381-shake-256/proof/proof001.json")]
+    #[case("bls12-381-shake-256/proof/proof002.json")]
+    #[case("bls12-381-shake-256/proof/proof003.json")]
+    #[case("bls12-381-shake-256/proof/proof004.json")]
+    #[case("bls12-381-shake-256/proof/proof005.json")]
+    #[case("bls12-381-shake-256/proof/proof006.json")]
+    #[case("bls12-381-shake-256/proof/proof007.json")]
+    #[case("bls12-381-shake-256/proof/proof008.json")]
+    #[case("bls12-381-shake-256/proof/proof009.json")]
+    #[case("bls12-381-shake-256/proof/proof010.json")]
+    #[case("bls12-381-shake-256/proof/proof011.json")]
+    #[case("bls12-381-shake-256/proof/proof012.json")]
+    #[case("bls12-381-shake-256/proof/proof013.json")]
+    fn proof_suite_2(file: &str) {
+        let input = &fixture!(tests::Proof, file);
+        let header = hex::decode(&input.header).unwrap();
 
-        let header = hex!("11223344556677889900aabbccddeeff");
+        let bbs = Bbs::<Bls12381Shake256>::new(&header);
+        proof_test::<Bls12381Shake256>(&input, bbs);
+    }
 
-        let messages = [hex!(
-            "9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"
-        )];
-        let messages = messages
+    fn proof_test<'a, T: BbsCiphersuite<'a> + Default>(input: &tests::Proof, bbs: Bbs<'a, T>) {
+        let input = input.clone();
+
+        let pk = PublicKey(G2Projective::from(
+            G2Affine::from_compressed(
+                from_hex!(input.signer_public_key)
+                    .as_slice()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
+        ));
+
+        let ph = from_hex!(input.presentation_header);
+
+        let messages = input
+            .revealed_messages
             .iter()
-            .map(|m| Scalar::from_bytes(&m).unwrap())
+            .map(|(i, m)| (i, from_hex!(m.as_bytes())))
+            .map(|(i, m)| (*i, bbs.message(m)))
             .collect::<Vec<_>>();
 
-        let _proof = proof_gen_impl::<Bls12381Sha256>(
-            &pk,
-            &signature,
-            header.as_slice(),
-            &[],
-            messages.as_slice(),
-            &[0],
-        );
+        let revealed = messages
+            .iter()
+            .map(|(i, _)| *i as usize)
+            .collect::<Vec<_>>();
+        let messages = messages.iter().map(|(_, m)| *m).collect::<Vec<_>>();
+
+        let proof = Proof::from_bytes(&from_hex!(input.proof.as_bytes())).unwrap();
+
+        let verify = bbs
+            .verify_proof_with(
+                &pk,
+                &proof,
+                input.total_message_count,
+                &messages,
+                &revealed,
+                &ph,
+            )
+            .unwrap();
+
+        assert_eq!(verify, input.result.valid);
     }
 
     #[test]
     fn test_proof_from_bytes() {
         let bytes = hex!("ad90ac0119119f58743e7a68bd80393dd95b0d4281c7ebe1550505e2c165ce1d328621da7a81a03c7637e4b37ece9ca2b5668f4e01d3d28bcb2bd983d9dd78aa52901fb8093dfb3397cf6e28f4addfdff361eca98c6b02d1140571bc748fbfd38bd7c1e0cbf50864d93b6952839aedae515fb353c827adc15991d1992eec075d608c74b0cd52a3a08870ddd5755054e526a1b407aa1952220ea961d5a6fbe16c496edb5343c9483a48ba077da729b148588b5fa5fbc142e7d3dcbde3de2df361e7ae7395a1136eea5fd70bec8dfc3d8f237ea8ca535d6e40d71be94b76f2c93f196715d0cc356f00f68b1fe5e5e342fd02c932a9775838e656f78847ced7f84e26d299af51a6a7c1bf51bb1e3e895d3555da0da7b8ccce37b20bd468bc04311782fca7088dc365786ed9910f5439f40921eae1f8d467245f86b4ec9ce908372b871d0edc4402173e52fc7100aca5738a1953a45253a1bf2ce1e2387bf8c33bafbf8f06ad41cdad5c07f823915c02962523856123045932d5eb731dc21439b27ed8283e6380d7a36db0a5946d799887e41e9210d68c368d261b15586bbaa6180bffb02a865a4fe043deb2bde498ce76e6616f7872f213b17e0bf4c86065fd021c031507b1697072a02f43310b819e02a741e9988f7ade4617050f518359e0ba0265bc6a62455b45655aff75d7d0d875c2");
 
-        let proof = Proof::from_vec(&bytes);
+        let proof = Proof::from_bytes(&bytes);
 
         assert!(proof.is_ok());
     }
