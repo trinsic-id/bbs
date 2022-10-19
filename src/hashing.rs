@@ -144,15 +144,9 @@ impl EncodeForHash for Scalar {
 #[cfg(test)]
 mod test {
     use bls12_381_plus::Scalar;
-    use hex_literal::hex;
+    use fluid::prelude::*;
 
-    use crate::{
-        ciphersuite::{Bls12381Sha256, Bls12381Shake256},
-        encoding::{I2OSP, OS2IP},
-        hashing::hash_to_scalar,
-    };
-
-    use super::{map_message_to_scalar_as_hash, EncodeForHash};
+    use crate::{ciphersuite::*, encoding::*, fixture, from_hex, hashing::*, tests::*};
 
     #[test]
     fn test_encode() {
@@ -160,70 +154,51 @@ mod test {
         assert_eq!(11 + 8, s.len());
     }
 
-    #[test]
-    fn map_message_to_scalar_test() {
-        let dst = hex!("4242535f424c53313233383147315f584d443a5348412d3235365f535357555f524f5f4d41505f4d53475f544f5f5343414c41525f41535f484153485f");
-        let message = hex!("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
-        let expected = hex!("360097633e394c22601426bd9f8d5b95f1c64f89689deee230e817925dee4724");
-        let expected_s = Scalar::os2ip(&expected);
+    #[theory]
+    #[case("bls12-381-sha-256/MapMessageToScalarAsHash.json", Bls12381Sha256)]
+    #[case("bls12-381-shake-256/MapMessageToScalarAsHash.json", Bls12381Shake256)]
+    fn map_message_to_scalar_test<'a, T>(file: &str, _: T)
+    where
+        T: BbsCiphersuite<'a>,
+    {
+        let input = fixture!(MapMessageToScalar, file);
 
-        let actual = map_message_to_scalar_as_hash::<Bls12381Sha256>(&message, &dst);
-
-        assert_eq!(expected_s, actual);
-        assert_eq!(expected.as_slice(), actual.i2osp(32));
+        for c in input.cases {
+            assert_eq!(
+                map_message_to_scalar_as_hash::<T>(
+                    &from_hex!(c.message),
+                    &from_hex!(input.dst.as_bytes())
+                ),
+                Scalar::os2ip(&from_hex!(c.scalar))
+            );
+        }
     }
 
-    #[test]
-    fn hash_to_curve_1_scalar_output_sha() {
-        let dst =
-            hex!("4242535f424c53313233383147315f584d443a5348412d3235365f535357555f524f5f4832535f");
-        let message = hex!("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
-        let expected = hex!("3805512ad3be0b912c70fb460ee39085ee05eda69c9eea1be4977543c0db7af5");
+    #[theory]
+    #[case("bls12-381-sha-256/h2s/h2s001.json", Bls12381Sha256)]
+    // #[case("bls12-381-sha-256/h2s/h2s002.json", Bls12381Sha256)]
+    #[case("bls12-381-shake-256/h2s/h2s001.json", Bls12381Shake256)]
+    #[case("bls12-381-shake-256/h2s/h2s002.json", Bls12381Shake256)]
+    fn hash_to_scalar_test<'a, T>(file: &str, _: T)
+    where
+        T: BbsCiphersuite<'a>,
+    {
+        let input = fixture!(HashToScalar, file);
 
-        let mut actual = [Scalar::zero(); 1];
-        hash_to_scalar::<Bls12381Sha256>(&message, &dst, &mut actual);
-
-        assert_eq!(expected.as_slice(), actual[0].i2osp(32));
-    }
-
-    #[test]
-    fn hash_to_curve_1_scalar_output_shake() {
-        let dst = hex!(
-            "4242535f424c53313233383147315f584f463a5348414b452d3235365f535357555f524f5f4832535f"
+        let mut actual = vec![Scalar::zero(); input.count];
+        hash_to_scalar::<T>(
+            &from_hex!(input.message),
+            &from_hex!(input.dst),
+            &mut actual,
         );
-        let message = hex!("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
-        let expected = hex!("260cab748e24ccc2bbd66f5b834d692622fa131f5ce898fa57217434c9ed14fa");
 
-        let mut actual = [Scalar::zero(); 1];
-        hash_to_scalar::<Bls12381Shake256>(&message, &dst, &mut actual);
+        assert_eq!(actual.len(), input.scalars.len());
 
-        assert_eq!(expected.as_slice(), actual[0].i2osp(32));
-    }
-
-    #[test]
-    fn hash_to_curve_10_scalar_output_shake() {
-        let dst = hex!(
-            "4242535f424c53313233383147315f584f463a5348414b452d3235365f535357555f524f5f4832535f"
-        );
-        let message = hex!("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
-        let expected = [
-            hex!("5c6e62607c16397ee6d9624673be9a7ddacbc7b7dd290bdb853cf4c74a34de0a"),
-            hex!("2a3524e43413a5d1b34c4c8ed119c4c5a2f9b84392ff0fea0d34e1be44ceafbc"),
-            hex!("4b649b82eed1e62117d91cd8d22438e72f3f931a0f8ad683d1ade253333c472a"),
-            hex!("64338965f1d37d17a14b6f431128c0d41a7c3924a5f484c282d20205afdfdb8f"),
-            hex!("0dfe01c01ff8654e43a611b76aaf4faec618a50d85d34f7cc89879b179bde3d5"),
-            hex!("6b6935016e64791f5d719f8206284fbe27dbb8efffb4141512c3fbfbfa861a0f"),
-            hex!("0dfe13f85a36df5ebfe0efac3759becfcc2a18b134fd22485c151db85f981342"),
-            hex!("5071751012c142046e7c3508decb0b7ba9a453d06ce7787189f4d93a821d538e"),
-            hex!("5cdae3304e745553a75134d914db5b282cc62d295e3ed176fb12f792919fd85e"),
-            hex!("32b67dfbba729831798279071a39021b66fd68ee2e68684a0f6901cd6fcb8256"),
-        ];
-
-        let mut actual = [Scalar::zero(); 10];
-        hash_to_scalar::<Bls12381Shake256>(&message, &dst, &mut actual);
-
-        for i in 0..10 {
-            assert_eq!(expected[i].as_slice(), actual[i].i2osp(32));
+        for i in 0..input.scalars.len() {
+            assert_eq!(
+                Scalar::os2ip(&from_hex!(input.scalars[i].as_bytes())),
+                actual[i]
+            );
         }
     }
 }

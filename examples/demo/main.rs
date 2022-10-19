@@ -26,7 +26,7 @@ fn main() {
     println!("signature: {:?}", signature);
 
     // verify the signature
-    let res = bbs.verify(&pk, &data, &signature);
+    let res = bbs.verify(&pk, &signature, &data);
     println!("verify signature result: {:?}", res);
 
     // create a proof by disclosing the messages at indices 1 and 3

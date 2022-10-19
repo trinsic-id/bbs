@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 #![allow(non_snake_case)]
 #![allow(unused_mut)]
 
@@ -32,7 +31,7 @@ pub struct Bbs<'a, T>
 where
     T: BbsCiphersuite<'a>,
 {
-    pub(crate) ciphersuite: T,
+    _phantom: T,
     pub(crate) header: &'a [u8],
 }
 
@@ -42,8 +41,8 @@ where
 {
     pub fn new(header: &'a [u8]) -> Self {
         Self {
-            ciphersuite: T::default(),
             header,
+            ..Default::default()
         }
     }
 
@@ -154,9 +153,9 @@ where
     /// ];
     /// let signature = bbs.sign(&sk, &data);
     ///
-    /// let result = bbs.verify(&sk.public_key(), &data, &signature);
+    /// let result = bbs.verify(&sk.public_key(), &signature, &data);
     /// ```
-    pub fn verify(&self, pk: &PublicKey, messages: &[Message], signature: &Signature) -> bool {
+    pub fn verify(&self, pk: &PublicKey, signature: &Signature, messages: &[Message]) -> bool {
         signature::verify_impl::<T>(
             &pk.0,
             signature,

@@ -253,7 +253,7 @@ mod test {
 
         let signature = Signature::from_bytes(&from_hex!(input.signature)).unwrap();
 
-        let verify = bbs.verify(&pk, &messages, &signature);
+        let verify = bbs.verify(&pk, &signature, &messages);
 
         assert_eq!(verify, input.result.valid);
     }
