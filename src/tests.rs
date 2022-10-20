@@ -39,7 +39,7 @@ macro_rules! fixture {
 }
 
 #[macro_export]
-macro_rules! from_hex {
+macro_rules! hex {
     ($input:expr) => {
         hex::decode($input).unwrap()
     };

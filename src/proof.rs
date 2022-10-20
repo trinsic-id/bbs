@@ -430,9 +430,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
 mod test {
 
     use crate::prelude::*;
-    use bls12_381_plus::{G2Affine, G2Projective};
     use fluid::prelude::*;
-    use hex_literal::hex;
 
     use super::Proof;
 
@@ -451,8 +449,8 @@ mod test {
     #[case("bls12-381-sha-256/proof/proof012.json")]
     #[case("bls12-381-sha-256/proof/proof013.json")]
     fn proof_suite_1(file: &str) {
-        let input = &fixture!(tests::Proof, file);
-        let header = hex::decode(&input.header).unwrap();
+        let input = fixture!(tests::Proof, file);
+        let header = hex!(&input.header);
 
         let bbs = Bbs::<Bls12381Sha256>::new(&header);
         proof_test::<Bls12381Sha256>(&input, bbs);
@@ -473,8 +471,8 @@ mod test {
     #[case("bls12-381-shake-256/proof/proof012.json")]
     #[case("bls12-381-shake-256/proof/proof013.json")]
     fn proof_suite_2(file: &str) {
-        let input = &fixture!(tests::Proof, file);
-        let header = hex::decode(&input.header).unwrap();
+        let input = fixture!(tests::Proof, file);
+        let header = hex!(&input.header);
 
         let bbs = Bbs::<Bls12381Shake256>::new(&header);
         proof_test::<Bls12381Shake256>(&input, bbs);
@@ -483,22 +481,14 @@ mod test {
     fn proof_test<'a, T: BbsCiphersuite<'a> + Default>(input: &tests::Proof, bbs: Bbs<'a, T>) {
         let input = input.clone();
 
-        let pk = PublicKey(G2Projective::from(
-            G2Affine::from_compressed(
-                from_hex!(input.signer_public_key)
-                    .as_slice()
-                    .try_into()
-                    .unwrap(),
-            )
-            .unwrap(),
-        ));
+        let pk = PublicKey::from_bytes(hex!(input.signer_public_key));
 
-        let ph = from_hex!(input.presentation_header);
+        let ph = hex!(input.presentation_header);
 
         let messages = input
             .revealed_messages
             .iter()
-            .map(|(i, m)| (i, from_hex!(m.as_bytes())))
+            .map(|(i, m)| (i, hex!(m.as_bytes())))
             .map(|(i, m)| (*i, bbs.message(m)))
             .collect::<Vec<_>>();
 
@@ -508,7 +498,7 @@ mod test {
             .collect::<Vec<_>>();
         let messages = messages.iter().map(|(_, m)| *m).collect::<Vec<_>>();
 
-        let proof = Proof::from_bytes(&from_hex!(input.proof.as_bytes())).unwrap();
+        let proof = Proof::from_bytes(&hex!(input.proof.as_bytes())).unwrap();
 
         let verify = bbs
             .verify_proof_with(

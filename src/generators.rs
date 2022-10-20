@@ -84,13 +84,7 @@ mod test {
 
     use fluid::prelude::*;
 
-    use crate::{
-        ciphersuite::{BbsCiphersuite, Bls12381Sha256, Bls12381Shake256},
-        fixture, from_hex,
-        generators::create_generators,
-        hashing::EncodeForHash,
-        tests,
-    };
+    use crate::{ciphersuite::*, fixture, generators::*, hashing::*, hex, tests};
 
     #[theory]
     #[case("bls12-381-sha-256/generators.json", Bls12381Sha256)]
@@ -103,14 +97,14 @@ mod test {
 
         let generators = create_generators::<T>(&[], input.msg_generators.len() + 2);
 
-        assert_eq!(generators.P1.encode_for_hash(), from_hex!(input.bp));
-        assert_eq!(generators.Q1.encode_for_hash(), from_hex!(input.q1));
-        assert_eq!(generators.Q2.encode_for_hash(), from_hex!(input.q2));
+        assert_eq!(generators.P1.encode_for_hash(), hex!(input.bp));
+        assert_eq!(generators.Q1.encode_for_hash(), hex!(input.q1));
+        assert_eq!(generators.Q2.encode_for_hash(), hex!(input.q2));
 
         for i in 0..input.msg_generators.len() {
             assert_eq!(
                 generators.H[i].encode_for_hash(),
-                from_hex!(&input.msg_generators[i])
+                hex!(&input.msg_generators[i])
             );
         }
     }

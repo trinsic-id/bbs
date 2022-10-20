@@ -67,9 +67,7 @@ impl OS2IP for Scalar {
 
 #[cfg(test)]
 mod test {
-    use hex_literal::hex;
-
-    use crate::{encoding::I2OSP, hashing::EncodeForHash};
+    use crate::{encoding::I2OSP, hashing::EncodeForHash, hex};
 
     #[test]
     fn to_octet_string_test() {

@@ -146,7 +146,7 @@ mod test {
     use bls12_381_plus::Scalar;
     use fluid::prelude::*;
 
-    use crate::{ciphersuite::*, encoding::*, fixture, from_hex, hashing::*, tests::*};
+    use crate::{ciphersuite::*, encoding::*, fixture, hashing::*, hex, tests::*};
 
     #[test]
     fn test_encode() {
@@ -162,14 +162,12 @@ mod test {
         T: BbsCiphersuite<'a>,
     {
         let input = fixture!(MapMessageToScalar, file);
+        let dst = hex!(input.dst);
 
         for c in input.cases {
             assert_eq!(
-                map_message_to_scalar_as_hash::<T>(
-                    &from_hex!(c.message),
-                    &from_hex!(input.dst.as_bytes())
-                ),
-                Scalar::os2ip(&from_hex!(c.scalar))
+                map_message_to_scalar_as_hash::<T>(&hex!(c.message), &dst),
+                Scalar::os2ip(&hex!(c.scalar))
             );
         }
     }
@@ -184,21 +182,16 @@ mod test {
         T: BbsCiphersuite<'a>,
     {
         let input = fixture!(HashToScalar, file);
+        let dst = hex!(input.dst);
+        let message = hex!(input.message);
 
         let mut actual = vec![Scalar::zero(); input.count];
-        hash_to_scalar::<T>(
-            &from_hex!(input.message),
-            &from_hex!(input.dst),
-            &mut actual,
-        );
+        hash_to_scalar::<T>(&message, &dst, &mut actual);
 
         assert_eq!(actual.len(), input.scalars.len());
 
         for i in 0..input.scalars.len() {
-            assert_eq!(
-                Scalar::os2ip(&from_hex!(input.scalars[i].as_bytes())),
-                actual[i]
-            );
+            assert_eq!(Scalar::os2ip(&hex!(input.scalars[i].as_bytes())), actual[i]);
         }
     }
 }

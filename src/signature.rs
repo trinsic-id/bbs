@@ -188,9 +188,7 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(
 #[cfg(test)]
 mod test {
     use crate::prelude::*;
-    use bls12_381_plus::{G2Affine, G2Projective};
     use fluid::prelude::*;
-    use hex_literal::hex;
 
     #[theory]
     #[case("bls12-381-sha-256/signature/signature001.json")]
@@ -203,8 +201,8 @@ mod test {
     #[case("bls12-381-sha-256/signature/signature008.json")]
     #[case("bls12-381-sha-256/signature/signature009.json")]
     fn signature_suite_1(file: &str) {
-        let input = &fixture!(tests::Signature, file);
-        let header = hex::decode(&input.header).unwrap();
+        let input = fixture!(tests::Signature, file);
+        let header = hex!(&input.header);
 
         let bbs = Bbs::<Bls12381Sha256>::new(&header);
         signature_test::<Bls12381Sha256>(&input, bbs);
@@ -221,8 +219,8 @@ mod test {
     #[case("bls12-381-shake-256/signature/signature008.json")]
     #[case("bls12-381-shake-256/signature/signature009.json")]
     fn signature_suite_2(file: &str) {
-        let input = &fixture!(tests::Signature, file);
-        let header = hex::decode(&input.header).unwrap();
+        let input = fixture!(tests::Signature, file);
+        let header = hex!(&input.header);
 
         let bbs = Bbs::<Bls12381Shake256>::new(&header);
         signature_test::<Bls12381Shake256>(&input, bbs);
@@ -234,24 +232,16 @@ mod test {
     ) {
         let input = input.clone();
 
-        let pk = PublicKey(G2Projective::from(
-            G2Affine::from_compressed(
-                from_hex!(input.signer_key_pair.public_key)
-                    .as_slice()
-                    .try_into()
-                    .unwrap(),
-            )
-            .unwrap(),
-        ));
+        let pk = PublicKey::from_bytes(hex!(input.signer_key_pair.public_key));
 
         let messages = input
             .messages
             .iter()
-            .map(|x| from_hex!(x.as_bytes()))
+            .map(|x| hex!(x.as_bytes()))
             .map(|x| bbs.message(x))
             .collect::<Vec<_>>();
 
-        let signature = Signature::from_bytes(&from_hex!(input.signature)).unwrap();
+        let signature = Signature::from_bytes(&hex!(input.signature)).unwrap();
 
         let verify = bbs.verify(&pk, &signature, &messages);
 
@@ -262,7 +252,7 @@ mod test {
     fn signature_from_octets_succeeds() {
         let bytes = hex!("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44");
 
-        let signature = Signature::from(&bytes);
+        let signature = Signature::from(&bytes.try_into().unwrap());
 
         matches!(signature, Signature { .. });
     }

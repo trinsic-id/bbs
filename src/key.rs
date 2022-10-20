@@ -13,6 +13,23 @@ pub struct SecretKey(pub(crate) Scalar);
 #[derive(Clone, PartialEq)]
 pub struct PublicKey(pub(crate) G2Projective);
 
+impl PublicKey {
+    pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Self {
+        let bytes = bytes.as_ref();
+        if bytes.len() != 96 {
+            panic!("Invalid length");
+        }
+        let mut buf = [0u8; 96];
+        buf.copy_from_slice(bytes);
+        let g2 = &G2Affine::from_compressed(&buf).unwrap();
+        PublicKey(g2.into())
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        G2Affine::from(self.0).to_compressed().to_vec()
+    }
+}
+
 impl SecretKey {
     /// Generate a new secret key deterministicaly using a seed and key info
     pub fn new<S, K>(salt: S, key_info: K) -> Self
@@ -119,9 +136,8 @@ pub(crate) fn sk_to_pk(sk: &Scalar) -> G2Projective {
 #[cfg(test)]
 mod test {
     use bls12_381_plus::{G2Affine, G2Projective, Scalar};
-    use hex_literal::hex;
 
-    use crate::{encoding::OS2IP, hashing::EncodeForHash};
+    use crate::{encoding::OS2IP, hashing::EncodeForHash, hex};
 
     use super::{sk_to_pk, SecretKey};
 
