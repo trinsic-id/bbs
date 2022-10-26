@@ -31,7 +31,7 @@ macro_rules! fixture {
     ($type:ty,$path:expr) => {
         serde_json::from_reader::<std::io::BufReader<std::fs::File>, $type>(
             std::io::BufReader::new(
-                std::fs::File::open(std::path::Path::new("fixture_data").join($path)).unwrap(),
+                std::fs::File::open(std::path::Path::new("spec/tooling/fixtures/fixture_data").join($path)).unwrap(),
             ),
         )
         .unwrap()
