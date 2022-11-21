@@ -1,16 +1,16 @@
 use core::fmt::{self, Debug, Display, Formatter};
 
-use bls12_381_plus::{G2Affine, G2Projective, Scalar};
+use bls12_381::{hash_to_curve::HashToField, G2Affine, G2Projective, Scalar};
 use hkdf::Hkdf;
 use rand::{thread_rng, RngCore};
-use sha2::{Digest, Sha256};
+use sha2::{digest::generic_array::GenericArray, Digest, Sha256};
 
 use crate::encoding::I2OSP;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SecretKey(pub(crate) Scalar);
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PublicKey(pub(crate) G2Projective);
 
 impl PublicKey {
@@ -117,15 +117,14 @@ pub(crate) fn key_gen(ikm: &[u8], key_info: &[u8]) -> Scalar {
 
         // 6.     OKM = HKDF-Expand(PRK, key_info || I2OSP(L, 2), L)
         let mut okm = [0u8; L];
-        hk.expand(&[&key_info[..], &L.i2osp(2)].concat(), &mut okm)
-            .unwrap();
+        hk.expand(&[key_info, &L.i2osp(2)].concat(), &mut okm).unwrap();
 
         // 7.     SK = OS2IP(OKM) mod r
-        sk = Scalar::from_okm(&okm);
+        sk = Scalar::from_okm(GenericArray::from_slice(&okm));
     }
 
     // 8. return SK
-    return sk;
+    sk
 }
 
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-sktopk
@@ -135,7 +134,7 @@ pub(crate) fn sk_to_pk(sk: &Scalar) -> G2Projective {
 
 #[cfg(test)]
 mod test {
-    use bls12_381_plus::{G2Affine, G2Projective, Scalar};
+    use bls12_381::{G2Affine, G2Projective, Scalar};
 
     use crate::{encoding::OS2IP, hashing::EncodeForHash, hex};
 

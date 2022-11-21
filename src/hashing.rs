@@ -1,4 +1,7 @@
-use bls12_381_plus::{ExpandMsg, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
+use bls12_381::{
+    hash_to_curve::{ExpandMessageState, HashToField, InitExpandMessage},
+    G1Affine, G1Projective, G2Affine, G2Projective, Scalar,
+};
 
 use crate::{
     ciphersuite::{BbsCiphersuite, POINT_LEN},
@@ -34,11 +37,7 @@ pub(crate) fn hash_to_scalar<'a, T>(msg_octets: &[u8], dst: &[u8], out: &mut [Sc
 where
     T: BbsCiphersuite<'a>,
 {
-    let dst = if dst.is_empty() {
-        T::hash_to_scalar_dst()
-    } else {
-        dst.into()
-    };
+    let dst = if dst.is_empty() { T::hash_to_scalar_dst() } else { dst.into() };
     let count = out.len();
 
     // 1.  len_in_bytes = count * expand_len
@@ -51,8 +50,7 @@ where
     let msg_prime = [msg_octets, &t.i2osp(1), &count.i2osp(4)].concat();
 
     // 4.  uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
-    let mut uniform_bytes = vec![0u8; len_in_bytes];
-    T::Expander::expand_message(&msg_prime, &dst, &mut uniform_bytes);
+    let uniform_bytes = T::Expander::init_expand(&msg_prime, &dst, len_in_bytes).into_vec();
 
     // 5.  for i in (1, ..., count):
     // 6.      tv = uniform_bytes[(i-1)*expand_len..i*expand_len-1]
@@ -60,14 +58,9 @@ where
     // 8.  if 0 in (scalar_1, ..., scalar_count):
     // 9.      t = t + 1
     // 10.     go back to step 3
-    let mut i = 0;
-    for item in out {
-        *item = Scalar::from_okm(
-            uniform_bytes[i * POINT_LEN..(i + 1) * POINT_LEN]
-                .try_into()
-                .unwrap(),
-        );
-        i += 1;
+    //let mut i = 0;
+    for (i, item) in out.iter_mut().enumerate() {
+        *item = Scalar::from_okm(uniform_bytes[i * POINT_LEN..(i + 1) * POINT_LEN].try_into().unwrap());
     }
 }
 
@@ -143,7 +136,7 @@ impl EncodeForHash for Scalar {
 
 #[cfg(test)]
 mod test {
-    use bls12_381_plus::Scalar;
+    use bls12_381::Scalar;
     use fluid::prelude::*;
 
     use crate::{ciphersuite::*, encoding::*, fixture, hashing::*, hex, tests::*};
@@ -165,16 +158,13 @@ mod test {
         let dst = hex!(input.dst);
 
         for c in input.cases {
-            assert_eq!(
-                map_message_to_scalar_as_hash::<T>(&hex!(c.message), &dst),
-                Scalar::os2ip(&hex!(c.scalar))
-            );
+            assert_eq!(map_message_to_scalar_as_hash::<T>(&hex!(c.message), &dst), Scalar::os2ip(&hex!(c.scalar)));
         }
     }
 
     #[theory]
     #[case("bls12-381-sha-256/h2s/h2s001.json", Bls12381Sha256)]
-    // #[case("bls12-381-sha-256/h2s/h2s002.json", Bls12381Sha256)]
+    #[case("bls12-381-sha-256/h2s/h2s002.json", Bls12381Sha256)]
     #[case("bls12-381-shake-256/h2s/h2s001.json", Bls12381Shake256)]
     #[case("bls12-381-shake-256/h2s/h2s002.json", Bls12381Shake256)]
     fn hash_to_scalar_test<'a, T>(file: &str, _: T)

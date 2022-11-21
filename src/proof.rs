@@ -1,13 +1,11 @@
 use std::fmt::{self, Debug, Display, Formatter};
 
-use bls12_381_plus::{
-    multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar,
-};
+use bls12_381::{multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
 use rand::{thread_rng, Rng};
 
 use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, signature::*, Error};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Proof {
     A_prime: G1Projective,
     A_bar: G1Projective,
@@ -31,12 +29,7 @@ impl Proof {
             &self.r2_hat.i2osp(SCALAR_LEN),
             &self.r3_hat.i2osp(SCALAR_LEN),
             &self.s_hat.i2osp(SCALAR_LEN),
-            &self
-                .m_hat
-                .iter()
-                .map(|m| m.i2osp(SCALAR_LEN))
-                .flatten()
-                .collect::<Vec<u8>>(),
+            &self.m_hat.iter().flat_map(|m| m.i2osp(SCALAR_LEN)).collect::<Vec<u8>>(),
         ]
         .concat()
     }
@@ -64,9 +57,7 @@ impl Proof {
         let s_hat = Scalar::os2ip(&bytes[3 * P + 4 * S..3 * P + 5 * S]);
         let mut m_hat = Vec::new();
         for i in 0..(bytes.len() - 3 * P - 5 * S) / S {
-            m_hat.push(Scalar::os2ip(
-                &bytes[3 * P + 5 * S + i * S..3 * P + 5 * S + (i + 1) * S],
-            ));
+            m_hat.push(Scalar::os2ip(&bytes[3 * P + 5 * S + i * S..3 * P + 5 * S + (i + 1) * S]));
         }
 
         Ok(Proof {
@@ -149,12 +140,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
         L.encode_for_hash(),
         generators.Q1.encode_for_hash(),
         generators.Q2.encode_for_hash(),
-        generators
-            .H
-            .iter()
-            .map(|g| g.encode_for_hash())
-            .flatten()
-            .collect::<Vec<u8>>(),
+        generators.H.iter().flat_map(|g| g.encode_for_hash()).collect::<Vec<u8>>(),
         T::CIPHERSUITE_ID.to_vec(),
         header.encode_for_hash(),
     ]
@@ -185,12 +171,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     let B = generators.P1
         + generators.Q1 * s
         + generators.Q2 * domain
-        + generators
-            .H
-            .iter()
-            .zip(messages.iter())
-            .map(|(g, m)| g * m)
-            .sum::<G1Projective>();
+        + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
     // 11. r3 = r1 ^ -1 mod r
     let r3 = r1.invert().unwrap();
@@ -226,11 +207,8 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
         C1.encode_for_hash(),
         C2.encode_for_hash(),
         R.encode_for_hash(),
-        i.iter().map(|i| i.encode_for_hash()).flatten().collect(),
-        i.iter()
-            .map(|i| messages[*i].encode_for_hash())
-            .flatten()
-            .collect(),
+        i.iter().flat_map(|i| i.encode_for_hash()).collect(),
+        i.iter().flat_map(|i| messages[*i].encode_for_hash()).collect(),
         domain.encode_for_hash(),
         ph.encode_for_hash(),
     ]
@@ -261,7 +239,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
         .collect::<Vec<_>>();
 
     // 27. proof = (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1, ..., m^_jU))
-    let proof = Proof {
+    Proof {
         A_prime,
         A_bar,
         D,
@@ -271,9 +249,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
         r3_hat,
         s_hat,
         m_hat,
-    };
-
-    proof
+    }
 }
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
@@ -338,12 +314,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         L.encode_for_hash(),
         generators.Q1.encode_for_hash(),
         generators.Q2.encode_for_hash(),
-        generators
-            .H
-            .iter()
-            .map(|g| g.encode_for_hash())
-            .collect::<Vec<_>>()
-            .concat(),
+        generators.H.iter().map(|g| g.encode_for_hash()).collect::<Vec<_>>().concat(),
         T::CIPHERSUITE_ID.to_vec(),
         header.encode_for_hash(),
     ]
@@ -355,9 +326,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     let domain = domain[0];
 
     // 10. C1 = (Abar - D) * c + A' * e^ + Q_1 * r2^
-    let C1 = (proof.A_bar - proof.D) * proof.c
-        + proof.A_prime * proof.e_hat
-        + generators.Q1 * proof.r2_hat;
+    let C1 = (proof.A_bar - proof.D) * proof.c + proof.A_prime * proof.e_hat + generators.Q1 * proof.r2_hat;
 
     // 11. T = P1 + Q_2 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
     let T = generators.P1
@@ -370,10 +339,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     // 12. C2 = T * c - D * r3^ + Q_1 * s^ + H_j1 * m^_j1 + ... + H_jU * m^_jU
     let C2 = T * proof.c - proof.D * proof.r3_hat
         + generators.Q1 * proof.s_hat
-        + j.iter()
-            .zip(proof.m_hat.iter())
-            .map(|(i, m)| generators.H[*i] * m)
-            .sum::<G1Projective>();
+        + j.iter().zip(proof.m_hat.iter()).map(|(i, m)| generators.H[*i] * m).sum::<G1Projective>();
 
     // 13. cv_array = (A', Abar, D, C1, C2, R, i1, ..., iR, msg_i1, ..., msg_iR, domain, ph)
     // 14. cv_for_hash = encode_for_hash(cv_array)
@@ -384,12 +350,8 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         C1.encode_for_hash(),
         C2.encode_for_hash(),
         R.encode_for_hash(),
-        i.iter().map(|i| i.encode_for_hash()).flatten().collect(),
-        disclosed_messages
-            .iter()
-            .map(|m| m.encode_for_hash())
-            .flatten()
-            .collect(),
+        i.iter().flat_map(|i| i.encode_for_hash()).collect(),
+        disclosed_messages.iter().flat_map(|m| m.encode_for_hash()).collect(),
         domain.encode_for_hash(),
         ph.encode_for_hash(),
     ]
@@ -413,14 +375,8 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
 
     // 19. if e(A', W) * e(Abar, -P2) != Identity_GT, return INVALID
     multi_miller_loop(&[
-        (
-            &G1Affine::from(proof.A_prime),
-            &G2Prepared::from(G2Affine::from(pk)),
-        ),
-        (
-            &G1Affine::from(proof.A_bar),
-            &G2Prepared::from(G2Affine::from(-G2Affine::generator())),
-        ),
+        (&G1Affine::from(proof.A_prime), &G2Prepared::from(G2Affine::from(pk))),
+        (&G1Affine::from(proof.A_bar), &G2Prepared::from(-G2Affine::generator())),
     ])
     .final_exponentiation()
         == Gt::identity()
@@ -492,23 +448,13 @@ mod test {
             .map(|(i, m)| (*i, bbs.message(m)))
             .collect::<Vec<_>>();
 
-        let revealed = messages
-            .iter()
-            .map(|(i, _)| *i as usize)
-            .collect::<Vec<_>>();
+        let revealed = messages.iter().map(|(i, _)| *i as usize).collect::<Vec<_>>();
         let messages = messages.iter().map(|(_, m)| *m).collect::<Vec<_>>();
 
         let proof = Proof::from_bytes(&hex!(input.proof.as_bytes())).unwrap();
 
         let verify = bbs
-            .verify_proof_with(
-                &pk,
-                &proof,
-                input.total_message_count,
-                &messages,
-                &revealed,
-                &ph,
-            )
+            .verify_proof_with(&pk, &proof, input.total_message_count, &messages, &revealed, &ph)
             .unwrap();
 
         assert_eq!(verify, input.result.valid);

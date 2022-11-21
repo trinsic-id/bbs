@@ -1,4 +1,4 @@
-use bls12_381_plus::{ExpandMsg, ExpandMsgXmd, ExpandMsgXof};
+use bls12_381::hash_to_curve::{ExpandMessage, ExpandMsgXmd, ExpandMsgXof};
 use sha2::Sha256;
 use sha3::Shake256;
 
@@ -14,7 +14,7 @@ pub(crate) const SEED_LEN: usize = 48;
 pub trait BbsCiphersuite<'a> {
     const CIPHERSUITE_ID: &'a [u8];
 
-    type Expander: ExpandMsg;
+    type Expander: ExpandMessage;
 
     fn bp_generator_seed() -> Vec<u8> {
         [Self::CIPHERSUITE_ID, b"BP_MESSAGE_GENERATOR_SEED"].concat()

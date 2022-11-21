@@ -29,7 +29,7 @@ pub mod prelude {
 #[derive(Default)]
 pub struct Bbs<'a, T>
 where
-    T: BbsCiphersuite<'a>,
+    T: BbsCiphersuite<'a> + Default,
 {
     _phantom: T,
     pub(crate) header: &'a [u8],
@@ -76,10 +76,7 @@ where
     where
         M: AsRef<[u8]>,
     {
-        Message(hashing::map_message_to_scalar_as_hash::<T>(
-            buf.as_ref(),
-            &[],
-        ))
+        Message(hashing::map_message_to_scalar_as_hash::<T>(buf.as_ref(), &[]))
     }
 
     /// Map an octet string to a scalar message using a domain separation tag
@@ -99,10 +96,7 @@ where
         M: AsRef<[u8]>,
         D: AsRef<[u8]>,
     {
-        Message(hashing::map_message_to_scalar_as_hash::<T>(
-            buf.as_ref(),
-            dst.as_ref(),
-        ))
+        Message(hashing::map_message_to_scalar_as_hash::<T>(buf.as_ref(), dst.as_ref()))
     }
 
     /// Sign a vector of messages
@@ -126,11 +120,7 @@ where
     /// let signature = bbs.sign(&sk, &data);
     /// ```
     pub fn sign(&self, sk: &SecretKey, messages: &[Message]) -> Signature {
-        signature::sign_impl::<T>(
-            &sk.0,
-            self.header,
-            &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
-        )
+        signature::sign_impl::<T>(&sk.0, self.header, &messages.iter().map(|m| m.0).collect::<Vec<_>>())
     }
 
     /// Verify a signature
@@ -156,12 +146,7 @@ where
     /// let result = bbs.verify(&sk.public_key(), &signature, &data);
     /// ```
     pub fn verify(&self, pk: &PublicKey, signature: &Signature, messages: &[Message]) -> bool {
-        signature::verify_impl::<T>(
-            &pk.0,
-            signature,
-            self.header,
-            &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
-        )
+        signature::verify_impl::<T>(&pk.0, signature, self.header, &messages.iter().map(|m| m.0).collect::<Vec<_>>())
     }
 
     /// Create a proof of knowledge of a signature
@@ -170,13 +155,7 @@ where
     /// while optionally selectively disclosing from the original set of signed messages._
     ///
     /// Specification [3.4.3. ProofGen](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofgen)
-    pub fn create_proof(
-        &self,
-        pk: &PublicKey,
-        signature: &Signature,
-        messages: &[Message],
-        revealed: &[usize],
-    ) -> Result<Proof, Error> {
+    pub fn create_proof(&self, pk: &PublicKey, signature: &Signature, messages: &[Message], revealed: &[usize]) -> Result<Proof, Error> {
         self.create_proof_with(pk, signature, messages, revealed, &[])
     }
 
@@ -201,18 +180,11 @@ where
             self.header,
             ph,
             &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
-            &revealed.iter().unique().map(|x| *x).collect::<Vec<_>>(),
+            &revealed.iter().unique().copied().collect::<Vec<_>>(),
         ))
     }
 
-    pub fn verify_proof(
-        &self,
-        pk: &PublicKey,
-        proof: &Proof,
-        count: usize,
-        messages: &[Message],
-        revealed: &[usize],
-    ) -> Result<bool, Error> {
+    pub fn verify_proof(&self, pk: &PublicKey, proof: &Proof, count: usize, messages: &[Message], revealed: &[usize]) -> Result<bool, Error> {
         self.verify_proof_with(pk, proof, count, messages, revealed, &[])
     }
 
@@ -231,12 +203,12 @@ where
 
         Ok(proof::proof_verify_impl::<T>(
             &pk.0,
-            &proof,
+            proof,
             count,
             self.header,
             ph,
             &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
-            &revealed.iter().unique().map(|x| *x).collect::<Vec<_>>(),
+            &revealed.iter().unique().copied().collect::<Vec<_>>(),
         ))
     }
 }
@@ -277,15 +249,7 @@ mod test {
         // test proof_gen and proof_verify
         let proof = proof_gen_impl::<Bls12381Sha256>(&pk, &signature, &[], &[], &messages, &[1, 3]);
 
-        let verify_result = proof_verify_impl::<Bls12381Sha256>(
-            &pk,
-            &proof,
-            messages.len(),
-            &[],
-            &[],
-            &[messages[1], messages[3]],
-            &[1, 3],
-        );
+        let verify_result = proof_verify_impl::<Bls12381Sha256>(&pk, &proof, messages.len(), &[], &[], &[messages[1], messages[3]], &[1, 3]);
 
         assert!(verify_result);
 

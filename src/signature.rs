@@ -1,13 +1,11 @@
 use std::fmt::{self, Debug, Display, Formatter};
 
-use bls12_381_plus::{
-    multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar,
-};
+use bls12_381::{multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
 
 use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_pk, *};
 
 /// BBS Signature
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct Signature {
     pub(crate) A: G1Projective,
     pub(crate) e: Scalar,
@@ -17,12 +15,7 @@ pub struct Signature {
 impl Signature {
     /// Specification [4.4.2. OctetsToSignature](https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-signaturetooctets)
     pub fn to_bytes(&self) -> Vec<u8> {
-        [
-            self.A.encode_for_hash(),
-            self.e.i2osp(SCALAR_LEN),
-            self.s.i2osp(SCALAR_LEN),
-        ]
-        .concat()
+        [self.A.encode_for_hash(), self.e.i2osp(SCALAR_LEN), self.s.i2osp(SCALAR_LEN)].concat()
     }
 
     /// Specification [4.4.1. OctetsToSignature](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-octetstosignature)
@@ -35,11 +28,9 @@ impl Signature {
         }
 
         Ok(Signature {
-            A: G1Affine::from_compressed(&buf[0..PL].try_into()?)
-                .unwrap()
-                .into(),
-            e: Scalar::os2ip(&buf[PL..PL + SL].to_vec()),
-            s: Scalar::os2ip(&buf[PL + SL..].to_vec()),
+            A: G1Affine::from_compressed(&buf[0..PL].try_into()?).unwrap().into(),
+            e: Scalar::os2ip(&buf[PL..PL + SL]),
+            s: Scalar::os2ip(&buf[PL + SL..]),
         })
     }
 }
@@ -72,7 +63,7 @@ pub(crate) fn sign_impl<'a, T>(sk: &Scalar, header: &[u8], messages: &[Scalar]) 
 where
     T: BbsCiphersuite<'a>,
 {
-    let PK = sk_to_pk(&sk);
+    let PK = sk_to_pk(sk);
     let L = messages.len();
 
     // 2. (Q_1, Q_2, H_1, ..., H_L) = create_generators(generator_seed, L+2)
@@ -113,12 +104,7 @@ where
     let B = generators.P1
         + generators.Q1 * s
         + generators.Q2 * domain
-        + generators
-            .H
-            .iter()
-            .zip(messages.iter())
-            .map(|(g, m)| g * m)
-            .sum::<G1Projective>();
+        + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
     // 9.  A = B * (1 / (SK + e))
     let A = B * (sk + e).invert().unwrap();
@@ -127,12 +113,7 @@ where
 }
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
-pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(
-    pk: &G2Projective,
-    signature: &Signature,
-    header: &[u8],
-    messages: &[Scalar],
-) -> bool {
+pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(pk: &G2Projective, signature: &Signature, header: &[u8], messages: &[Scalar]) -> bool {
     let L = messages.len();
     let generators = create_generators::<T>(&[], L + 2);
 
@@ -143,12 +124,7 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(
         L.encode_for_hash(),
         generators.Q1.encode_for_hash(),
         generators.Q2.encode_for_hash(),
-        generators
-            .H
-            .iter()
-            .map(|g| g.encode_for_hash())
-            .flatten()
-            .collect::<Vec<u8>>(),
+        generators.H.iter().flat_map(|g| g.encode_for_hash()).collect::<Vec<u8>>(),
         T::CIPHERSUITE_ID.to_vec(),
         header.encode_for_hash(),
     ]
@@ -163,12 +139,7 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(
     let B = generators.P1
         + generators.Q1 * signature.s
         + generators.Q2 * domain
-        + generators
-            .H
-            .iter()
-            .zip(messages.iter())
-            .map(|(g, m)| g * m)
-            .sum::<G1Projective>();
+        + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
     // 11. if e(A, W + P2 * e) * e(B, -P2) != Identity_GT, return INVALID
     multi_miller_loop(&[
@@ -176,10 +147,7 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(
             &G1Affine::from(signature.A),
             &G2Prepared::from(G2Affine::from(pk + G2Projective::generator() * signature.e)),
         ),
-        (
-            &G1Affine::from(B),
-            &G2Prepared::from(-G2Affine::generator()),
-        ),
+        (&G1Affine::from(B), &G2Prepared::from(-G2Affine::generator())),
     ])
     .final_exponentiation()
         == Gt::identity()
@@ -226,10 +194,7 @@ mod test {
         signature_test::<Bls12381Shake256>(&input, bbs);
     }
 
-    fn signature_test<'a, T: BbsCiphersuite<'a> + Default>(
-        input: &tests::Signature,
-        bbs: Bbs<'a, T>,
-    ) {
+    fn signature_test<'a, 'b, T: BbsCiphersuite<'a> + Default>(input: &tests::Signature, bbs: Bbs<'a, T>) {
         let input = input.clone();
 
         let pk = PublicKey::from_bytes(hex!(input.signer_key_pair.public_key));

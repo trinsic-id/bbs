@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter, Result};
 
-use bls12_381_plus::Scalar;
-#[derive(Clone, PartialEq, Copy)]
+use bls12_381::Scalar;
+#[derive(Clone, PartialEq, Eq, Copy)]
 pub struct Message(pub(crate) Scalar);
 
 impl Debug for Message {
