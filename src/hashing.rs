@@ -20,14 +20,12 @@ where
         dst.into()
     };
 
-    // 1. msg_for_hash = encode_for_hash(msg)
-    let msg_for_hash = message.encode_for_hash();
-
-    // 2. if msg_for_hash is INVALID, return INVALID
-    // 3. if length(dst) > 255, return INVALID
-    // 4. return hash_to_scalar(msg_for_hash, 1, dst)
+    // 1. if length(msg) > 2^64 - 1 or length(dst) > 255 return INVALID
+    // 2. msg_scalar = hash_to_scalar(msg, 1, dst)
+    // 3. if msg_scalar is INVALID, return INVALID
+    // 4. return msg_scalar
     let mut result = [Scalar::zero(); 1];
-    hash_to_scalar::<T>(&msg_for_hash, &dst, &mut result);
+    hash_to_scalar::<T>(message, &dst, &mut result);
 
     result[0]
 }
