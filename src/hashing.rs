@@ -5,7 +5,7 @@ use bls12_381::{
 
 use crate::{
     ciphersuite::{BbsCiphersuite, POINT_LEN},
-    encoding::I2OSP,
+    encoding::{I2OSP, OS2IP},
 };
 
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-mapmessagetoscalarashash
@@ -41,16 +41,9 @@ where
     let msg_prime = [msg_octets, &0u8.i2osp(1)].concat();
 
     // 4.  uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
-    let uniform_bytes = T::Expander::init_expand(&msg_prime, &dst, POINT_LEN).into_vec();
+    let mut uniform_bytes = T::Expander::init_expand(&msg_prime, &dst, 48).into_vec();
 
-    // 5.  for i in (1, ..., count):
-    // 6.      tv = uniform_bytes[(i-1)*expand_len..i*expand_len-1]
-    // 7.      scalar_i = OS2IP(tv) mod r
-    // 8.  if 0 in (scalar_1, ..., scalar_count):
-    // 9.      t = t + 1
-    // 10.     go back to step 3
-    //let mut i = 0;
-    Scalar::from_okm(uniform_bytes[0..POINT_LEN].try_into().unwrap())
+    Scalar::from_okm(uniform_bytes[..].try_into().unwrap())
 }
 
 pub trait EncodeForHash {
