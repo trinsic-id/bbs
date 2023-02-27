@@ -32,6 +32,10 @@ pub trait BbsCiphersuite<'a> {
         [Self::CIPHERSUITE_ID, b"SIG_GENERATOR_DST_"].concat()
     }
 
+    fn expand_dst() -> Vec<u8> {
+        [Self::CIPHERSUITE_ID, b"SIG_DET_DST_"].concat()
+    }
+
     fn hash_to_scalar_dst() -> Vec<u8> {
         [Self::CIPHERSUITE_ID, b"H2S_"].concat()
     }

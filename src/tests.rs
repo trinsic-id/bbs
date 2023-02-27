@@ -51,7 +51,6 @@ pub(crate) struct Proof {
     pub header: String,
     pub presentation_header: String,
     pub revealed_messages: BTreeMap<u32, String>,
-    pub total_message_count: usize,
     pub proof: String,
     pub result: Result,
 }
@@ -135,6 +134,5 @@ pub(crate) struct HashToScalar {
     pub case_name: String,
     pub message: String,
     pub dst: String,
-    pub count: usize,
-    pub scalars: Vec<String>,
+    pub scalar: String,
 }

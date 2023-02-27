@@ -37,6 +37,6 @@ fn main() {
     println!("disclosed messages: {:#?}", disclosed_data);
 
     // verify the generated proof
-    let res = bbs.verify_proof(&pk, &proof, data.len(), &disclosed_data, &[1, 3]);
+    let res = bbs.verify_proof(&pk, &proof, &disclosed_data, &[1, 3]);
     println!("verify proof result: {:?}", res.unwrap());
 }

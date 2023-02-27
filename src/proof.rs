@@ -142,30 +142,31 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
         generators.Q2.encode_for_hash(),
         generators.H.iter().flat_map(|g| g.encode_for_hash()).collect::<Vec<u8>>(),
         T::CIPHERSUITE_ID.to_vec(),
-        header.encode_for_hash(),
+        header.to_vec(),
     ]
     .concat();
 
     // 6.  if dom_for_hash is INVALID, return INVALID
     // 7.  domain = hash_to_scalar(dom_for_hash, 1)
-    let mut domain = [Scalar::zero()];
-    hash_to_scalar::<T>(&dom_for_hash, &[], &mut domain);
-    let domain = domain[0];
+    let domain = calculate_domain::<T>(pk, &generators.Q1, &generators.Q2, &generators.H, header);
 
     // 8.  (r1, r2, e~, r2~, r3~, s~) = hash_to_scalar(PRF(prf_len), 6)
-    let mut buffer = [0u8; PRF_LEN];
-    thread_rng().fill(&mut buffer);
 
-    let mut scalars = [Scalar::zero(); 6];
-    hash_to_scalar::<T>(&buffer, &[], &mut scalars);
-    let [r1, r2, e_tilda, r2_tilda, r3_tilda, s_tilda] = scalars;
+    // 6.  random_scalars = calculate_random_scalars(6+U)
+    let scalars = calculate_random_scalars(6 + U);
 
-    // 9.  (m~_j1, ..., m~_jU) = hash_to_scalar(PRF(prf_len), U)
-    let mut buffer = [0u8; PRF_LEN];
-    thread_rng().fill(&mut buffer);
+    //7.  (r1, r2, e~, r2~, r3~, s~, m~_j1, ..., m~_jU) = random_scalars
+    let r1 = scalars[0];
+    let r2 = scalars[1];
+    let e_tilda = scalars[2];
+    let r2_tilda = scalars[3];
+    let r3_tilda = scalars[4];
+    let s_tilda = scalars[5];
 
     let mut m_tilda = vec![Scalar::zero(); U];
-    hash_to_scalar::<T>(&buffer, &[], &mut m_tilda);
+    for i in 6..6 + U {
+        m_tilda[i - 6] = scalars[i];
+    }
 
     // 10. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
     let B = generators.P1
@@ -210,15 +211,13 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
         i.iter().flat_map(|i| i.encode_for_hash()).collect(),
         i.iter().flat_map(|i| messages[*i].encode_for_hash()).collect(),
         domain.encode_for_hash(),
-        ph.encode_for_hash(),
+        ph.to_vec(),
     ]
     .concat();
 
     // 20. if c_for_hash is INVALID, return INVALID
     // 21. c = hash_to_scalar(c_for_hash, 1)
-    let mut c = [Scalar::zero()];
-    hash_to_scalar::<T>(&c_for_hash, &[], &mut c);
-    let c = c[0];
+    let c = hash_to_scalar::<T>(&c_for_hash, &[]);
 
     // 22. e^ = c * e + e~ mod r
     let e_hat = c * e + e_tilda;
@@ -252,25 +251,34 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     }
 }
 
+pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
+    let mut scalars = vec![Scalar::zero(); count];
+    for scalar in scalars.iter_mut() {
+        let mut buffer = [0u8; 64];
+        thread_rng().fill(&mut buffer);
+        *scalar = Scalar::from_okm(buffer[0..POINT_LEN].try_into().unwrap())
+    }
+    scalars
+}
+
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
 pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     pk: &G2Projective,
     proof: &Proof,
-    signed_msg_count: usize,
     header: &[u8],
     ph: &[u8],
     disclosed_messages: &[Scalar],
     disclosed_indexes: &[usize],
 ) -> bool {
-    // L (REQUIRED), non-negative integer. The number of signed messages.
-    let L = signed_msg_count;
     // R, is the non-negative integer representing the number of disclosed
     //   (revealed) messages, i.e., R = length(disclosed_indexes). If no
     //    messages are disclosed, the value of R MUST evaluate to zero (0).
     let R = disclosed_messages.len();
     // U, is the non-negative integer representing the number of undisclosed
     //   messages, i.e., U = L - R.
-    let U = L - R;
+    let U = proof.m_hat.len();
+    // L (REQUIRED), non-negative integer. The number of signed messages.
+    let L = R + U;
 
     // Parameters:
 
@@ -316,14 +324,12 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         generators.Q2.encode_for_hash(),
         generators.H.iter().map(|g| g.encode_for_hash()).collect::<Vec<_>>().concat(),
         T::CIPHERSUITE_ID.to_vec(),
-        header.encode_for_hash(),
+        header.to_vec(),
     ]
     .concat();
 
     // 9.  domain = hash_to_scalar(dom_for_hash, 1)
-    let mut domain = [Scalar::zero()];
-    hash_to_scalar::<T>(&dom_for_hash, &[], &mut domain);
-    let domain = domain[0];
+    let domain = hash_to_scalar::<T>(&dom_for_hash, &[]);
 
     // 10. C1 = (Abar - D) * c + A' * e^ + Q_1 * r2^
     let C1 = (proof.A_bar - proof.D) * proof.c + proof.A_prime * proof.e_hat + generators.Q1 * proof.r2_hat;
@@ -353,15 +359,13 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         i.iter().flat_map(|i| i.encode_for_hash()).collect(),
         disclosed_messages.iter().flat_map(|m| m.encode_for_hash()).collect(),
         domain.encode_for_hash(),
-        ph.encode_for_hash(),
+        ph.to_vec(),
     ]
     .concat();
 
     // 15. if cv_for_hash is INVALID, return INVALID
     // 16. cv = hash_to_scalar(cv_for_hash, 1)
-    let mut cv = [Scalar::zero()];
-    hash_to_scalar::<T>(&cv_for_hash, &[], &mut cv);
-    let cv = cv[0];
+    let cv = hash_to_scalar::<T>(&cv_for_hash, &[]);
 
     // 17. if c != cv, return INVALID
     if proof.c != cv {
@@ -453,9 +457,7 @@ mod test {
 
         let proof = Proof::from_bytes(&hex!(input.proof.as_bytes())).unwrap();
 
-        let verify = bbs
-            .verify_proof_with(&pk, &proof, input.total_message_count, &messages, &revealed, &ph)
-            .unwrap();
+        let verify = bbs.verify_proof_with(&pk, &proof, &messages, &revealed, &ph).unwrap();
 
         assert_eq!(verify, input.result.valid);
     }
