@@ -169,6 +169,6 @@ mod test {
         let actual_pk = sk_to_pk(&Scalar::os2ip(&sk));
 
         assert_eq!(expected_pk, G2Affine::from(actual_pk).to_compressed());
-        assert_eq!(expected_pk.as_slice(), &actual_pk.encode_for_hash());
+        assert_eq!(expected_pk.as_slice(), &actual_pk.serialize());
     }
 }

@@ -47,59 +47,59 @@ where
 }
 
 pub trait EncodeForHash {
-    fn encode_for_hash(&self) -> Vec<u8>;
+    fn serialize(&self) -> Vec<u8>;
 }
 
 impl EncodeForHash for dyn AsRef<[u8]> {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         self.as_ref().into()
     }
 }
 
 impl EncodeForHash for usize {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         self.i2osp(8)
     }
 }
 
 impl EncodeForHash for u64 {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         self.i2osp(8)
     }
 }
 
 impl EncodeForHash for u8 {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         (*self as u64).i2osp(8)
     }
 }
 
 impl EncodeForHash for G2Projective {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         G2Affine::from(self).to_compressed().to_vec()
     }
 }
 
 impl EncodeForHash for G1Projective {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         G1Affine::from(self).to_compressed().to_vec()
     }
 }
 
 impl EncodeForHash for G2Affine {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         self.to_compressed().to_vec()
     }
 }
 
 impl EncodeForHash for G1Affine {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         self.to_compressed().to_vec()
     }
 }
 
 impl EncodeForHash for Scalar {
-    fn encode_for_hash(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         self.i2osp(32)
     }
 }

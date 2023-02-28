@@ -86,12 +86,12 @@ mod test {
 
         let generators = create_generators::<T>(&[], input.msg_generators.len() + 2);
 
-        assert_eq!(generators.P1.encode_for_hash(), hex!(input.bp));
-        assert_eq!(generators.Q1.encode_for_hash(), hex!(input.q1));
-        assert_eq!(generators.Q2.encode_for_hash(), hex!(input.q2));
+        assert_eq!(generators.P1.serialize(), hex!(input.bp));
+        assert_eq!(generators.Q1.serialize(), hex!(input.q1));
+        assert_eq!(generators.Q2.serialize(), hex!(input.q2));
 
         for i in 0..input.msg_generators.len() {
-            assert_eq!(generators.H[i].encode_for_hash(), hex!(&input.msg_generators[i]));
+            assert_eq!(generators.H[i].serialize(), hex!(&input.msg_generators[i]));
         }
     }
 }

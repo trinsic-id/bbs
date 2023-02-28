@@ -136,11 +136,11 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // 4.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 5.  dom_for_hash = encode_for_hash(dom_array)
     let dom_for_hash = [
-        pk.encode_for_hash(),
-        L.encode_for_hash(),
-        generators.Q1.encode_for_hash(),
-        generators.Q2.encode_for_hash(),
-        generators.H.iter().flat_map(|g| g.encode_for_hash()).collect::<Vec<u8>>(),
+        pk.serialize(),
+        L.serialize(),
+        generators.Q1.serialize(),
+        generators.Q2.serialize(),
+        generators.H.iter().flat_map(|g| g.serialize()).collect::<Vec<u8>>(),
         T::CIPHERSUITE_ID.to_vec(),
         header.to_vec(),
     ]
@@ -148,7 +148,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
 
     // 6.  if dom_for_hash is INVALID, return INVALID
     // 7.  domain = hash_to_scalar(dom_for_hash, 1)
-    let domain = calculate_domain::<T>(pk, &generators.Q1, &generators.Q2, &generators.H, header);
+    let domain = calculate_domain::<T>(pk, &generators, header);
 
     // 8.  (r1, r2, e~, r2~, r3~, s~) = hash_to_scalar(PRF(prf_len), 6)
 
@@ -202,15 +202,15 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // 18. c_array = (A', Abar, D, C1, C2, R, i1, ..., iR, msg_i1, ..., msg_iR, domain, ph)
     // 19. c_for_hash = encode_for_hash(c_array)
     let c_for_hash = [
-        A_prime.encode_for_hash(),
-        A_bar.encode_for_hash(),
-        D.encode_for_hash(),
-        C1.encode_for_hash(),
-        C2.encode_for_hash(),
-        R.encode_for_hash(),
-        i.iter().flat_map(|i| i.encode_for_hash()).collect(),
-        i.iter().flat_map(|i| messages[*i].encode_for_hash()).collect(),
-        domain.encode_for_hash(),
+        A_prime.serialize(),
+        A_bar.serialize(),
+        D.serialize(),
+        C1.serialize(),
+        C2.serialize(),
+        R.serialize(),
+        i.iter().flat_map(|i| i.serialize()).collect(),
+        i.iter().flat_map(|i| messages[*i].serialize()).collect(),
+        domain.serialize(),
         ph.to_vec(),
     ]
     .concat();
@@ -318,11 +318,11 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
     // 7.  dom_for_hash = encode_for_hash(dom_array)
     let dom_for_hash = [
-        pk.encode_for_hash(),
-        L.encode_for_hash(),
-        generators.Q1.encode_for_hash(),
-        generators.Q2.encode_for_hash(),
-        generators.H.iter().map(|g| g.encode_for_hash()).collect::<Vec<_>>().concat(),
+        pk.serialize(),
+        L.serialize(),
+        generators.Q1.serialize(),
+        generators.Q2.serialize(),
+        generators.H.iter().map(|g| g.serialize()).collect::<Vec<_>>().concat(),
         T::CIPHERSUITE_ID.to_vec(),
         header.to_vec(),
     ]
@@ -350,15 +350,15 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     // 13. cv_array = (A', Abar, D, C1, C2, R, i1, ..., iR, msg_i1, ..., msg_iR, domain, ph)
     // 14. cv_for_hash = encode_for_hash(cv_array)
     let cv_for_hash = [
-        proof.A_prime.encode_for_hash(),
-        proof.A_bar.encode_for_hash(),
-        proof.D.encode_for_hash(),
-        C1.encode_for_hash(),
-        C2.encode_for_hash(),
-        R.encode_for_hash(),
-        i.iter().flat_map(|i| i.encode_for_hash()).collect(),
-        disclosed_messages.iter().flat_map(|m| m.encode_for_hash()).collect(),
-        domain.encode_for_hash(),
+        proof.A_prime.serialize(),
+        proof.A_bar.serialize(),
+        proof.D.serialize(),
+        C1.serialize(),
+        C2.serialize(),
+        R.serialize(),
+        i.iter().flat_map(|i| i.serialize()).collect(),
+        disclosed_messages.iter().flat_map(|m| m.serialize()).collect(),
+        domain.serialize(),
         ph.to_vec(),
     ]
     .concat();
