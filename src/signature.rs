@@ -103,11 +103,11 @@ where
     // 1.  L = length(H_Points)
     let L = generators.H.len();
 
-    // 4.  dom_array = (Q_1, Q_2, L, H_1, ..., H_L)
+    // 4.  dom_array = (L, Q_1, Q_2, H_1, ..., H_L)
     let dom_array_serilized = [
+        L.serialize(),
         generators.Q1.serialize(),
         generators.Q2.serialize(),
-        L.serialize(),
         generators.H.iter().map(|g| g.serialize()).concat(),
     ]
     .concat();
