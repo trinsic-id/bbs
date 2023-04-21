@@ -180,7 +180,7 @@ where
             self.header,
             ph,
             &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
-            &revealed.iter().unique().copied().collect::<Vec<_>>(),
+            &revealed.iter().unique().copied().collect::<Vec<_>>()
         ))
     }
 

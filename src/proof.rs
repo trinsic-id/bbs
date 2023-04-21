@@ -98,7 +98,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     header: &[u8],
     ph: &[u8],
     messages: &[Scalar],
-    disclosed_indexes: &[usize],
+    disclosed_indexes: &[usize]
 ) -> Proof {
     // L, is the non-negative integer representing the number of messages,
     //   i.e., L = length(messages). If no messages are supplied, the
@@ -153,7 +153,10 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // 8.  (r1, r2, e~, r2~, r3~, s~) = hash_to_scalar(PRF(prf_len), 6)
 
     // 6.  random_scalars = calculate_random_scalars(6+U)
+    #[cfg(not(test))]
     let scalars = calculate_random_scalars(6 + U);
+    #[cfg(test)]
+    let scalars = calculate_random_scalars::<T>(6 + U);
 
     //7.  (r1, r2, e~, r2~, r3~, s~, m~_j1, ..., m~_jU) = random_scalars
     let r1 = scalars[0];
@@ -251,6 +254,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     }
 }
 
+#[cfg(not(test))]
 pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
     let mut scalars = vec![Scalar::zero(); count];
     for scalar in scalars.iter_mut() {
@@ -260,6 +264,35 @@ pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
     }
     scalars
 }
+
+#[cfg(test)]
+pub(crate) fn calculate_random_scalars<'a, T: BbsCiphersuite<'a>>(count: usize) -> Vec<Scalar> {
+    let seed = hex::decode("332e313431353932363533353839373933323338343632363433333833323739").unwrap();
+    /*
+        Procedure:
+
+        1. out_len = expand_len * count
+        2. v = expand_message(SEED, dst, out_len)
+        3. if v is INVALID, return INVALID
+
+        4. for i in (1, ..., count):
+        5.     start_idx = (i-1) * expand_len
+        6.     end_idx = i * expand_len - 1
+        7.     r_i = OS2IP(v[start_idx..end_idx]) mod r
+        8. return (r_1, ...., r_count)
+     */
+    let out_len = 48 * count;
+    let dst = [T::CIPHERSUITE_ID, b"MOCK_RANDOM_SCALARS_DST_"].concat();
+
+    let mut v = T::Expander::init_expand(&seed, &dst, out_len).into_vec();
+
+    let mut scalars = vec![Scalar::zero(); count];
+    for scalar in scalars.iter_mut() {
+        *scalar = Scalar::from_okm(v[0..48].try_into().unwrap())
+    }
+    scalars
+}
+
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
 pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
