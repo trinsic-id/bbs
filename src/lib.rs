@@ -14,6 +14,7 @@ mod hashing;
 mod key;
 mod proof;
 mod signature;
+mod utils;
 #[macro_use]
 #[cfg(test)]
 mod tests;
@@ -184,19 +185,11 @@ where
         ))
     }
 
-    pub fn verify_proof(&self, pk: &PublicKey, proof: &Proof, count: usize, messages: &[Message], revealed: &[usize]) -> Result<bool, Error> {
-        self.verify_proof_with(pk, proof, count, messages, revealed, &[])
+    pub fn verify_proof(&self, pk: &PublicKey, proof: &Proof, messages: &[Message], revealed: &[usize]) -> Result<bool, Error> {
+        self.verify_proof_with(pk, proof, messages, revealed, &[])
     }
 
-    pub fn verify_proof_with(
-        &self,
-        pk: &PublicKey,
-        proof: &Proof,
-        count: usize,
-        messages: &[Message],
-        revealed: &[usize],
-        ph: &[u8],
-    ) -> Result<bool, Error> {
+    pub fn verify_proof_with(&self, pk: &PublicKey, proof: &Proof, messages: &[Message], revealed: &[usize], ph: &[u8]) -> Result<bool, Error> {
         if revealed.len() != messages.len() {
             return Err(Error::InvalidProof);
         }
@@ -204,7 +197,6 @@ where
         Ok(proof::proof_verify_impl::<T>(
             &pk.0,
             proof,
-            count,
             self.header,
             ph,
             &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
@@ -249,7 +241,7 @@ mod test {
         // test proof_gen and proof_verify
         let proof = proof_gen_impl::<Bls12381Sha256>(&pk, &signature, &[], &[], &messages, &[1, 3]);
 
-        let verify_result = proof_verify_impl::<Bls12381Sha256>(&pk, &proof, messages.len(), &[], &[], &[messages[1], messages[3]], &[1, 3]);
+        let verify_result = proof_verify_impl::<Bls12381Sha256>(&pk, &proof, &[], &[], &[messages[1], messages[3]], &[1, 3]);
 
         assert!(verify_result);
 

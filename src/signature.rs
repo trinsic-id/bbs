@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 use bls12_381::{multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
 
-use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_pk, *};
+use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_pk, utils::calculate_domain, *};
 
 /// BBS Signature
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -15,7 +15,7 @@ pub struct Signature {
 impl Signature {
     /// Specification [4.4.2. OctetsToSignature](https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-signaturetooctets)
     pub fn to_bytes(&self) -> Vec<u8> {
-        [self.A.encode_for_hash(), self.e.i2osp(SCALAR_LEN), self.s.i2osp(SCALAR_LEN)].concat()
+        [self.A.serialize(), self.e.i2osp(SCALAR_LEN), self.s.i2osp(SCALAR_LEN)].concat()
     }
 
     /// Specification [4.4.1. OctetsToSignature](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-octetstosignature)
@@ -65,83 +65,54 @@ where
 {
     let PK = sk_to_pk(sk);
     let L = messages.len();
+    let expand_len = 32usize;
 
-    // 2. (Q_1, Q_2, H_1, ..., H_L) = create_generators(generator_seed, L+2)
+    // 1.  (Q_1, Q_2, H_1, ..., H_L) = create_generators(L+2)
     let generators = create_generators::<T>(&T::generator_seed(), L + 2);
 
-    // 1.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
-    // 2.  dom_for_hash = encode_for_hash(dom_array)
-    let dom_for_hash = [
-        PK.encode_for_hash(),
-        L.encode_for_hash(),
-        generators.Q1.encode_for_hash(),
-        generators.Q2.encode_for_hash(),
-        generators.H.iter().map(|g| g.encode_for_hash()).concat(),
-        T::CIPHERSUITE_ID.to_vec(),
-        header.encode_for_hash(),
-    ]
-    .concat();
+    // 2.  domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
+    let domain = calculate_domain::<T>(&PK, &generators, header);
 
-    // 4.  domain = hash_to_scalar(dom_for_hash, 1)
-    let mut domain = [Scalar::zero()];
-    hash_to_scalar::<T>(&dom_for_hash, &[], &mut domain);
-    let domain = domain[0];
+    // 4.  e_s_octs = serialize((SK, domain, msg_1, ..., msg_L))
+    let e_s_octs = vec![sk.serialize(), domain.serialize(), messages.iter().map(|x| x.serialize()).concat()].concat();
 
-    // 5.  e_s_for_hash = encode_for_hash((SK, domain, msg_1, ..., msg_L))
-    let e_s_for_hash = vec![
-        sk.encode_for_hash(),
-        domain.encode_for_hash(),
-        messages.iter().map(|x| x.encode_for_hash()).concat(),
-    ]
-    .concat();
+    // 6.  e_s_expand = expand_message(e_s_octs, expand_dst, expand_len * 2)
+    let e_s_expand = T::Expander::init_expand(&e_s_octs, &T::expand_dst(), 2 * expand_len).into_vec();
 
-    // 7.  (e, s) = hash_to_scalar(e_s_for_hash, 2)
-    let mut e_s = [Scalar::zero(); 2];
-    hash_to_scalar::<T>(&e_s_for_hash, &[], &mut e_s);
-    let [e, s] = e_s;
+    // 8.  e = hash_to_scalar(e_s_expand[0..(expand_len - 1)])
+    // 9.  s = hash_to_scalar(e_s_expand[expand_len..(expand_len * 2 - 1)])
+    let e = hash_to_scalar::<T>(&e_s_expand[0..expand_len], &[]);
+    let s = hash_to_scalar::<T>(&e_s_expand[expand_len..2 * expand_len], &[]);
 
-    // 8.  B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
+    // 11. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
     let B = generators.P1
         + generators.Q1 * s
         + generators.Q2 * domain
         + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
-    // 9.  A = B * (1 / (SK + e))
+    // 12. A = B * (1 / (SK + e))
     let A = B * (sk + e).invert().unwrap();
 
-    Signature { A, s, e }
+    Signature { A, e, s }
 }
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
 pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(pk: &G2Projective, signature: &Signature, header: &[u8], messages: &[Scalar]) -> bool {
     let L = messages.len();
+
+    // 1. (Q_1, Q_2, H_1, ..., H_L) = create_generators(L+2)
     let generators = create_generators::<T>(&[], L + 2);
 
-    // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
-    // 7.  dom_for_hash = encode_for_hash(dom_array)
-    let dom_for_hash = [
-        pk.encode_for_hash(),
-        L.encode_for_hash(),
-        generators.Q1.encode_for_hash(),
-        generators.Q2.encode_for_hash(),
-        generators.H.iter().flat_map(|g| g.encode_for_hash()).collect::<Vec<u8>>(),
-        T::CIPHERSUITE_ID.to_vec(),
-        header.encode_for_hash(),
-    ]
-    .concat();
+    // 2. domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
+    let domain = calculate_domain::<T>(pk, &generators, header);
 
-    // 9.  domain = hash_to_scalar(dom_for_hash, 1)
-    let mut domain = [Scalar::zero()];
-    hash_to_scalar::<T>(dom_for_hash.as_slice(), &[], &mut domain);
-    let domain = domain[0];
-
-    // 10. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
+    // 4. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
     let B = generators.P1
         + generators.Q1 * signature.s
         + generators.Q2 * domain
         + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
-    // 11. if e(A, W + P2 * e) * e(B, -P2) != Identity_GT, return INVALID
+    // 5. if e(A, W + P2 * e) * e(B, -P2) != Identity_GT, return INVALID
     multi_miller_loop(&[
         (
             &G1Affine::from(signature.A),

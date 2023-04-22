@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter, Result};
 
 use bls12_381::Scalar;
+
 #[derive(Clone, PartialEq, Eq, Copy)]
 pub struct Message(pub(crate) Scalar);
 
@@ -67,7 +68,7 @@ impl OS2IP for Scalar {
 
 #[cfg(test)]
 mod test {
-    use crate::{encoding::I2OSP, hashing::EncodeForHash, hex};
+    use crate::encoding::I2OSP;
 
     #[test]
     fn to_octet_string_test() {
@@ -76,15 +77,5 @@ mod test {
         assert_eq!(i.i2osp(1), [42]);
         assert_eq!(i.i2osp(10), [0, 0, 0, 0, 0, 0, 0, 0, 0, 42]);
         assert_eq!(i.i2osp(3), vec![0, 0, 42]);
-    }
-
-    #[test]
-    fn encode_for_hash_test_vector() {
-        let input = hex!("014d");
-        let expected = hex!("0000000000000002014d");
-
-        let actual = input.as_slice().encode_for_hash();
-
-        assert_eq!(actual, expected);
     }
 }
