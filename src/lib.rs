@@ -14,6 +14,7 @@ mod hashing;
 mod key;
 mod proof;
 mod signature;
+mod utils;
 #[macro_use]
 #[cfg(test)]
 mod tests;
@@ -180,7 +181,7 @@ where
             self.header,
             ph,
             &messages.iter().map(|m| m.0).collect::<Vec<_>>(),
-            &revealed.iter().unique().copied().collect::<Vec<_>>()
+            &revealed.iter().unique().copied().collect::<Vec<_>>(),
         ))
     }
 

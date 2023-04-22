@@ -3,10 +3,7 @@ use bls12_381::{
     G1Affine, G1Projective, G2Affine, G2Projective, Scalar,
 };
 
-use crate::{
-    ciphersuite::{BbsCiphersuite, POINT_LEN},
-    encoding::{I2OSP, OS2IP},
-};
+use crate::{ciphersuite::BbsCiphersuite, encoding::I2OSP};
 
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-mapmessagetoscalarashash
 #[allow(unused_comparisons)]
@@ -34,13 +31,10 @@ where
 {
     let dst = if dst.is_empty() { T::hash_to_scalar_dst() } else { dst.into() };
 
-    // 2.  t = 0
-    let mut t = 0usize;
-
-    // 3.  msg_prime = msg_octets || I2OSP(t, 1) || I2OSP(count, 4)
+    // msg_prime = msg_octets || I2OSP(t, 1) || I2OSP(count, 4)
     let msg_prime = [msg_octets, &0u8.i2osp(1)].concat();
 
-    // 4.  uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
+    // uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
     let mut uniform_bytes = T::Expander::init_expand(&msg_prime, &dst, 48).into_vec();
 
     Scalar::from_okm(uniform_bytes[..].try_into().unwrap())

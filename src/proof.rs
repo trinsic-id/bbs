@@ -1,9 +1,17 @@
 use std::fmt::{self, Debug, Display, Formatter};
 
 use bls12_381::{multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
+#[cfg(not(test))]
 use rand::{thread_rng, Rng};
 
-use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, signature::*, Error};
+use crate::{
+    ciphersuite::*,
+    encoding::*,
+    generators::*,
+    signature::*,
+    utils::{calculate_challenge, calculate_domain},
+    Error,
+};
 
 #[derive(PartialEq, Eq, Clone)]
 pub struct Proof {
@@ -98,7 +106,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     header: &[u8],
     ph: &[u8],
     messages: &[Scalar],
-    disclosed_indexes: &[usize]
+    disclosed_indexes: &[usize],
 ) -> Proof {
     // L, is the non-negative integer representing the number of messages,
     //   i.e., L = length(messages). If no messages are supplied, the
@@ -112,10 +120,6 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     //   messages, i.e., U = L - R.
     let U = L - R;
     // r: 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
-    // prf_len = ceil(ceil(log2(r))/8), where r defined by the ciphersuite.
-    const PRF_LEN: usize = 32;
-
-    let generators = create_generators::<T>(&[], L + 2);
 
     // Precomputations:
 
@@ -126,31 +130,14 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // 2. (j1, ..., jU) = range(1, L) \ disclosed_indexes
     let j = (0..L).filter(|x| !i.contains(x)).collect::<Vec<usize>>();
 
-    // Procedure:
-
-    // 1.  signature_result = octets_to_signature(signature)
-    // 2.  if signature_result is INVALID, return INVALID
-    // 3.  (A, e, s) = signature_result
     let (A, e, s) = (signature.A, signature.e, signature.s);
 
-    // 4.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
-    // 5.  dom_for_hash = encode_for_hash(dom_array)
-    let dom_for_hash = [
-        pk.serialize(),
-        L.serialize(),
-        generators.Q1.serialize(),
-        generators.Q2.serialize(),
-        generators.H.iter().flat_map(|g| g.serialize()).collect::<Vec<u8>>(),
-        T::CIPHERSUITE_ID.to_vec(),
-        header.to_vec(),
-    ]
-    .concat();
+    // Procedure:
+    // 1.  (Q_1, Q_2, MsgGenerators) = create_generators(L+2)
+    let generators = create_generators::<T>(&[], L + 2);
 
-    // 6.  if dom_for_hash is INVALID, return INVALID
-    // 7.  domain = hash_to_scalar(dom_for_hash, 1)
+    // 4.  domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(pk, &generators, header);
-
-    // 8.  (r1, r2, e~, r2~, r3~, s~) = hash_to_scalar(PRF(prf_len), 6)
 
     // 6.  random_scalars = calculate_random_scalars(6+U)
     #[cfg(not(test))]
@@ -202,25 +189,9 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
             .map(|x| generators.H[*x] * m_tilda[j.iter().position(|&y| y == *x).unwrap()])
             .sum::<G1Projective>();
 
-    // 18. c_array = (A', Abar, D, C1, C2, R, i1, ..., iR, msg_i1, ..., msg_iR, domain, ph)
-    // 19. c_for_hash = encode_for_hash(c_array)
-    let c_for_hash = [
-        A_prime.serialize(),
-        A_bar.serialize(),
-        D.serialize(),
-        C1.serialize(),
-        C2.serialize(),
-        R.serialize(),
-        i.iter().flat_map(|i| i.serialize()).collect(),
-        i.iter().flat_map(|i| messages[*i].serialize()).collect(),
-        domain.serialize(),
-        ph.to_vec(),
-    ]
-    .concat();
-
-    // 20. if c_for_hash is INVALID, return INVALID
-    // 21. c = hash_to_scalar(c_for_hash, 1)
-    let c = hash_to_scalar::<T>(&c_for_hash, &[]);
+    // 16. c = calculate_challenge(A', Abar, D, C1, C2, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
+    let disclosed_messages = i.iter().map(|x| messages[*x]).collect::<Vec<Scalar>>();
+    let c = calculate_challenge::<T>(&A_prime, &A_bar, &D, &C1, &C2, disclosed_indexes, &disclosed_messages, &domain, ph);
 
     // 22. e^ = c * e + e~ mod r
     let e_hat = c * e + e_tilda;
@@ -269,18 +240,18 @@ pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
 pub(crate) fn calculate_random_scalars<'a, T: BbsCiphersuite<'a>>(count: usize) -> Vec<Scalar> {
     let seed = hex::decode("332e313431353932363533353839373933323338343632363433333833323739").unwrap();
     /*
-        Procedure:
+       Procedure:
 
-        1. out_len = expand_len * count
-        2. v = expand_message(SEED, dst, out_len)
-        3. if v is INVALID, return INVALID
+       1. out_len = expand_len * count
+       2. v = expand_message(SEED, dst, out_len)
+       3. if v is INVALID, return INVALID
 
-        4. for i in (1, ..., count):
-        5.     start_idx = (i-1) * expand_len
-        6.     end_idx = i * expand_len - 1
-        7.     r_i = OS2IP(v[start_idx..end_idx]) mod r
-        8. return (r_1, ...., r_count)
-     */
+       4. for i in (1, ..., count):
+       5.     start_idx = (i-1) * expand_len
+       6.     end_idx = i * expand_len - 1
+       7.     r_i = OS2IP(v[start_idx..end_idx]) mod r
+       8. return (r_1, ...., r_count)
+    */
     let out_len = 48 * count;
     let dst = [T::CIPHERSUITE_ID, b"MOCK_RANDOM_SCALARS_DST_"].concat();
 
@@ -292,7 +263,6 @@ pub(crate) fn calculate_random_scalars<'a, T: BbsCiphersuite<'a>>(count: usize) 
     }
     scalars
 }
-
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
 pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
@@ -342,32 +312,13 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     }
 
     // Procedure:
+    // domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
+    let domain = calculate_domain::<T>(pk, &generators, header);
 
-    // 1.  proof_result = octets_to_proof(proof)
-    // 2.  if proof_result is INVALID, return INVALID
-    // 3.  (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1,...,m^_jU)) = proof_result
-    // 4.  W = octets_to_pubkey(PK)
-    // 5.  if W is INVALID, return INVALID
-    // 6.  dom_array = (PK, L, Q_1, Q_2, H_1, ..., H_L, ciphersuite_id, header)
-    // 7.  dom_for_hash = encode_for_hash(dom_array)
-    let dom_for_hash = [
-        pk.serialize(),
-        L.serialize(),
-        generators.Q1.serialize(),
-        generators.Q2.serialize(),
-        generators.H.iter().map(|g| g.serialize()).collect::<Vec<_>>().concat(),
-        T::CIPHERSUITE_ID.to_vec(),
-        header.to_vec(),
-    ]
-    .concat();
-
-    // 9.  domain = hash_to_scalar(dom_for_hash, 1)
-    let domain = hash_to_scalar::<T>(&dom_for_hash, &[]);
-
-    // 10. C1 = (Abar - D) * c + A' * e^ + Q_1 * r2^
+    // C1 = (Abar - D) * c + A' * e^ + Q_1 * r2^
     let C1 = (proof.A_bar - proof.D) * proof.c + proof.A_prime * proof.e_hat + generators.Q1 * proof.r2_hat;
 
-    // 11. T = P1 + Q_2 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
+    // T = P1 + Q_2 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
     let T = generators.P1
         + generators.Q2 * domain
         + i.iter()
@@ -380,25 +331,8 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         + generators.Q1 * proof.s_hat
         + j.iter().zip(proof.m_hat.iter()).map(|(i, m)| generators.H[*i] * m).sum::<G1Projective>();
 
-    // 13. cv_array = (A', Abar, D, C1, C2, R, i1, ..., iR, msg_i1, ..., msg_iR, domain, ph)
-    // 14. cv_for_hash = encode_for_hash(cv_array)
-    let cv_for_hash = [
-        proof.A_prime.serialize(),
-        proof.A_bar.serialize(),
-        proof.D.serialize(),
-        C1.serialize(),
-        C2.serialize(),
-        R.serialize(),
-        i.iter().flat_map(|i| i.serialize()).collect(),
-        disclosed_messages.iter().flat_map(|m| m.serialize()).collect(),
-        domain.serialize(),
-        ph.to_vec(),
-    ]
-    .concat();
-
-    // 15. if cv_for_hash is INVALID, return INVALID
-    // 16. cv = hash_to_scalar(cv_for_hash, 1)
-    let cv = hash_to_scalar::<T>(&cv_for_hash, &[]);
+    // cv = calculate_challenge(A', Abar, D, C1, C2, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
+    let cv = calculate_challenge::<T>(&proof.A_prime, &proof.A_bar, &proof.D, &C1, &C2, &i, disclosed_messages, &domain, ph);
 
     // 17. if c != cv, return INVALID
     if proof.c != cv {

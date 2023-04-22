@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 use bls12_381::{multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
 
-use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_pk, *};
+use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_pk, utils::calculate_domain, *};
 
 /// BBS Signature
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -94,32 +94,6 @@ where
     let A = B * (sk + e).invert().unwrap();
 
     Signature { A, e, s }
-}
-
-pub(crate) fn calculate_domain<'a, T>(pk: &G2Projective, generators: &Generators, header: &[u8]) -> Scalar
-where
-    T: BbsCiphersuite<'a>,
-{
-    // 1.  L = length(H_Points)
-    let L = generators.H.len();
-
-    // 4.  dom_array = (L, Q_1, Q_2, H_1, ..., H_L)
-    let dom_array_serilized = [
-        L.serialize(),
-        generators.Q1.serialize(),
-        generators.Q2.serialize(),
-        generators.H.iter().map(|g| g.serialize()).concat(),
-    ]
-    .concat();
-
-    // 5.  dom_octs = serialize(dom_array) || ciphersuite_id
-    let dom_octs = [dom_array_serilized, T::CIPHERSUITE_ID.to_vec()].concat();
-
-    // 7.  dom_input = PK || dom_octs || I2OSP(length(header), 8) || header
-    let dom_input = [pk.serialize(), dom_octs, header.len().i2osp(8), header.to_vec()].concat();
-
-    // 4.  domain = hash_to_scalar(dom_for_hash, 1)
-    hash_to_scalar::<T>(&dom_input, &[])
 }
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
