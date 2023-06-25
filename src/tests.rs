@@ -60,7 +60,6 @@ pub(crate) struct Proof {
 pub(crate) struct Generators {
     pub bp: String,
     pub q1: String,
-    pub q2: String,
     #[serde(rename = "MsgGenerators")]
     pub msg_generators: Vec<String>,
 }

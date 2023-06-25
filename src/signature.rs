@@ -9,13 +9,12 @@ use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_p
 pub struct Signature {
     pub(crate) A: G1Projective,
     pub(crate) e: Scalar,
-    pub(crate) s: Scalar,
 }
 
 impl Signature {
     /// Specification [4.4.2. OctetsToSignature](https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-signaturetooctets)
     pub fn to_bytes(&self) -> Vec<u8> {
-        [self.A.serialize(), self.e.i2osp(SCALAR_LEN), self.s.i2osp(SCALAR_LEN)].concat()
+        [self.A.serialize(), self.e.i2osp(SCALAR_LEN)].concat()
     }
 
     /// Specification [4.4.1. OctetsToSignature](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-octetstosignature)
@@ -23,14 +22,13 @@ impl Signature {
         let PL = POINT_LEN;
         let SL = SCALAR_LEN;
 
-        if buf.len() != PL + 2 * SL {
+        if buf.len() != PL + SL {
             return Err(Error::InvalidSignature);
         }
 
         Ok(Signature {
             A: G1Affine::from_compressed(&buf[0..PL].try_into()?).unwrap().into(),
-            e: Scalar::os2ip(&buf[PL..PL + SL]),
-            s: Scalar::os2ip(&buf[PL + SL..]),
+            e: Scalar::os2ip(&buf[PL..]),
         })
     }
 }
@@ -52,8 +50,8 @@ impl Display for Signature {
     }
 }
 
-impl From<&[u8; 112]> for Signature {
-    fn from(buf: &[u8; 112]) -> Self {
+impl From<&[u8; 80]> for Signature {
+    fn from(buf: &[u8; 80]) -> Self {
         Signature::from_bytes(buf).unwrap()
     }
 }
@@ -65,35 +63,35 @@ where
 {
     let PK = sk_to_pk(sk);
     let L = messages.len();
-    let expand_len = 32usize;
 
-    // 1.  (Q_1, Q_2, H_1, ..., H_L) = create_generators(L+2)
-    let generators = create_generators::<T>(&T::generator_seed(), L + 2);
+    /*
+        1. (Q_1, H_1, ..., H_L) = create_generators(L+1)
+        2. domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
+        3. if domain is INVALID, return INVALID
+        4. e = hash_to_scalar(serialize((SK, domain, msg_1, ..., msg_L)))
+        5. if e is INVALID, return INVALID
+        6. B = P1 + Q_1 * domain + H_1 * msg_1 + ... + H_L * msg_L
+        7. A = B * (1 / (SK + e))
+        8. return signature_to_octets(A, e)
+    */
 
-    // 2.  domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
+    // 1. (Q_1, H_1, ..., H_L) = create_generators(L+1)
+    let generators = create_generators::<T>(L + 1);
+
+    // 2. domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(&PK, &generators, header);
 
-    // 4.  e_s_octs = serialize((SK, domain, msg_1, ..., msg_L))
-    let e_s_octs = vec![sk.serialize(), domain.serialize(), messages.iter().map(|x| x.serialize()).concat()].concat();
+    // 4. e = hash_to_scalar(serialize((SK, domain, msg_1, ..., msg_L)))
+    let e_octs = vec![sk.serialize(), domain.serialize(), messages.iter().map(|x| x.serialize()).concat()].concat();
+    let e = hash_to_scalar::<T>(&e_octs, &[]);
 
-    // 6.  e_s_expand = expand_message(e_s_octs, expand_dst, expand_len * 2)
-    let e_s_expand = T::Expander::init_expand(&e_s_octs, &T::expand_dst(), 2 * expand_len).into_vec();
+    // 6. B = P1 + Q_1 * domain + H_1 * msg_1 + ... + H_L * msg_L
+    let B = generators.P1 + generators.Q1 * domain + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
-    // 8.  e = hash_to_scalar(e_s_expand[0..(expand_len - 1)])
-    // 9.  s = hash_to_scalar(e_s_expand[expand_len..(expand_len * 2 - 1)])
-    let e = hash_to_scalar::<T>(&e_s_expand[0..expand_len], &[]);
-    let s = hash_to_scalar::<T>(&e_s_expand[expand_len..2 * expand_len], &[]);
-
-    // 11. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
-    let B = generators.P1
-        + generators.Q1 * s
-        + generators.Q2 * domain
-        + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
-
-    // 12. A = B * (1 / (SK + e))
+    // 7. A = B * (1 / (SK + e))
     let A = B * (sk + e).invert().unwrap();
 
-    Signature { A, e, s }
+    Signature { A, e }
 }
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
@@ -101,16 +99,13 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(pk: &G2Projective, signature: &Sig
     let L = messages.len();
 
     // 1. (Q_1, Q_2, H_1, ..., H_L) = create_generators(L+2)
-    let generators = create_generators::<T>(&[], L + 2);
+    let generators = create_generators::<T>(L + 1);
 
     // 2. domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(pk, &generators, header);
 
     // 4. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
-    let B = generators.P1
-        + generators.Q1 * signature.s
-        + generators.Q2 * domain
-        + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
+    let B = generators.P1 + generators.Q1 * domain + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
     // 5. if e(A, W + P2 * e) * e(B, -P2) != Identity_GT, return INVALID
     multi_miller_loop(&[
@@ -185,15 +180,6 @@ mod test {
     }
 
     #[test]
-    fn signature_from_octets_succeeds() {
-        let bytes = hex!("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44");
-
-        let signature = Signature::from(&bytes.try_into().unwrap());
-
-        matches!(signature, Signature { .. });
-    }
-
-    #[test]
     fn signature_from_octets_succeeds_slice() {
         let bytes = hex!("90ab57c8670fb86df30e5ab93222a7a93b829564a18aeee36064b53ddef6fa443f6f59e0ac48e60641113b39dde4112404ded0d1d1302a884565b5b1f3ba1d56c40ea63fc632193ef3cb4ee01192a9525c134821981eebc89c2c890d3a137816cc3b58ea2d7f3608b3d0362488a52f44");
 
@@ -215,6 +201,6 @@ mod test {
 
         let bytes = signature.to_bytes();
 
-        assert_eq!(112, bytes.len());
+        assert_eq!(80, bytes.len());
     }
 }

@@ -130,11 +130,11 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // 2. (j1, ..., jU) = range(1, L) \ disclosed_indexes
     let j = (0..L).filter(|x| !i.contains(x)).collect::<Vec<usize>>();
 
-    let (A, e, s) = (signature.A, signature.e, signature.s);
+    let (A, e) = (signature.A, signature.e);
 
     // Procedure:
-    // 1.  (Q_1, Q_2, MsgGenerators) = create_generators(L+2)
-    let generators = create_generators::<T>(&[], L + 2);
+    // 1.  (Q_1, MsgGenerators) = create_generators(L+1)
+    let generators = create_generators::<T>(L + 1);
 
     // 4.  domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(pk, &generators, header);
@@ -160,8 +160,8 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
 
     // 10. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
     let B = generators.P1
-        + generators.Q1 * s
-        + generators.Q2 * domain
+        // + generators.Q1 * s
+        + generators.Q1 * domain
         + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
     // 11. r3 = r1 ^ -1 mod r
@@ -177,7 +177,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     let D = B * r1 + generators.Q1 * r2;
 
     // 15. s' = r2 * r3 + s mod r
-    let s_prime = r2 * r3 + s;
+    // let s_prime = r2 * r3 + s;
 
     // 16. C1 = A' * e~ + Q_1 * r2~
     let C1 = A_prime * e_tilda + generators.Q1 * r2_tilda;
@@ -203,7 +203,7 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     let r3_hat = c * r3 + r3_tilda;
 
     // 25. s^ = c * s' + s~ mod r
-    let s_hat = c * s_prime + s_tilda;
+    let s_hat = c; // * s_prime + s_tilda;
 
     // 26. for j in (j1, ..., jU): m^_j = c * msg_j + m~_j mod r
     let m_hat = j
@@ -301,7 +301,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     }
 
     // 4. (Q_1, Q_2, MsgGenerators) = create_generators(L+2)
-    let generators = create_generators::<T>(&[], L + 2);
+    let generators = create_generators::<T>(L + 1);
 
     // Preconditions:
 
@@ -320,7 +320,7 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
 
     // T = P1 + Q_2 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
     let T = generators.P1
-        + generators.Q2 * domain
+        + generators.Q1 * domain
         + i.iter()
             .zip(disclosed_messages.iter())
             .map(|(i, m)| generators.H[*i] * m)

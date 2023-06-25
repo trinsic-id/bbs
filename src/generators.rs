@@ -6,21 +6,70 @@ pub use bls12_381::{hash_to_curve::*, G1Projective};
 pub(crate) struct Generators {
     pub(crate) P1: G1Projective,
     pub(crate) Q1: G1Projective,
-    pub(crate) Q2: G1Projective,
     pub(crate) H: Vec<G1Projective>,
 }
 
-pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(seed: &[u8], count: usize) -> Generators {
-    if count < 2 {
-        panic!("count must be greater than 1");
+pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Generators {
+    if count < 1 {
+        panic!("count must be greater 1 or greater");
     }
 
-    let seed = if seed.is_empty() { T::generator_seed() } else { seed.to_vec() };
+    /*
+        Inputs:
 
-    let P1 = make_g1_base_point::<T>();
+        - count (REQUIRED), unsigned integer. Number of generators to create.
+
+        Parameters:
+
+        - hash_to_curve_suite, the hash to curve suite id defined by the
+                            ciphersuite.
+        - hash_to_curve_g1, the hash_to_curve operation for the G1 subgroup,
+                            defined by the suite specified by the
+                            hash_to_curve_suite parameter.
+        - expand_message, the expand_message operation defined by the suite
+                        specified by the hash_to_curve_suite parameter.
+        - generator_seed, an octet string. A seed value selected by the
+                        ciphersuite.
+        - P1, fixed point of G1, defined by the ciphersuite.
+
+        Definitions:
+
+        - seed_dst, an octet string representing the domain separation tag:
+                    ciphersuite_id || "SIG_GENERATOR_SEED_" where
+                    ciphersuite_id is defined by the ciphersuite and
+                    "SIG_GENERATOR_SEED_" is an ASCII string comprised of 19
+                    bytes.
+        - generator_dst, an octet string representing the domain separation tag:
+                        ciphersuite_id || "SIG_GENERATOR_DST_", where
+                        ciphersuite_id is defined by the ciphersuite and
+                        "SIG_GENERATOR_DST_" is an ASCII string comprised of
+                        18 bytes.
+        - seed_len = ceil((ceil(log2(r)) + k)/8), where r and k are defined by
+                                                the ciphersuite.
+
+        Outputs:
+
+        - generators, an array of generators.
+
+        Procedure:
+
+        1.  v = expand_message(generator_seed, seed_dst, seed_len)
+        2.  n = 1
+        3.  for i in range(1, count):
+        4.     v = expand_message(v || I2OSP(n, 4), seed_dst, seed_len)
+        5.     n = n + 1
+        6.     generator_i = Identity_G1
+        7.     candidate = hash_to_curve_g1(v, generator_dst)
+        8.     if candidate in (generator_1, ..., generator_i, P_1):
+        9.        go back to step 4
+        10.    generator_i = candidate
+        11. return (generator_1, ..., generator_count)
+    */
+
+    let P1 = T::get_bp();
 
     // 1.  v = expand_message(generator_seed, seed_dst, seed_len)
-    let mut v = T::Expander::init_expand(&seed, &T::generator_seed_dst(), SEED_LEN).into_vec();
+    let mut v = T::Expander::init_expand(&T::generator_seed(), &T::generator_seed_dst(), SEED_LEN).into_vec();
 
     // 2.  n = 1
     let mut n = 1usize;
@@ -50,22 +99,8 @@ pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(seed: &[u8], count: u
     Generators {
         P1,
         Q1: generators[0],
-        Q2: generators[1],
-        H: generators[2..].to_vec(),
+        H: generators[1..count].to_vec(),
     }
-}
-
-fn make_g1_base_point<'a, T: BbsCiphersuite<'a>>() -> G1Projective {
-    let seed = T::bp_generator_seed();
-    let seed_dst = T::generator_seed_dst();
-    let mut v = T::Expander::init_expand(&seed, &seed_dst, SEED_LEN).into_vec();
-
-    let extra = 1usize.i2osp(4);
-    let buffer = [v, extra].concat();
-    v = T::Expander::init_expand(&buffer, &seed_dst, SEED_LEN).into_vec();
-
-    let dst = T::generator_dst();
-    <G1Projective as HashToCurve<T::Expander>>::hash_to_curve(v, &dst)
 }
 
 #[cfg(test)]
@@ -84,11 +119,10 @@ mod test {
     {
         let input = fixture!(tests::Generators, file);
 
-        let generators = create_generators::<T>(&[], input.msg_generators.len() + 2);
+        let generators = create_generators::<T>(input.msg_generators.len() + 1);
 
         assert_eq!(generators.P1.serialize(), hex!(input.bp));
         assert_eq!(generators.Q1.serialize(), hex!(input.q1));
-        assert_eq!(generators.Q2.serialize(), hex!(input.q2));
 
         for i in 0..input.msg_generators.len() {
             assert_eq!(generators.H[i].serialize(), hex!(&input.msg_generators[i]));
