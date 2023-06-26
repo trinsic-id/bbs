@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 use bls12_381::{multi_miller_loop, G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar};
 
-use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, key::sk_to_pk, utils::calculate_domain, *};
+use crate::{ciphersuite::*, encoding::*, generators::*, hashing::*, utils::calculate_domain, *};
 
 /// BBS Signature
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -61,19 +61,8 @@ pub(crate) fn sign_impl<'a, T>(sk: &Scalar, header: &[u8], messages: &[Scalar]) 
 where
     T: BbsCiphersuite<'a>,
 {
-    let PK = sk_to_pk(sk);
+    let PK = G2Projective::generator() * sk;
     let L = messages.len();
-
-    /*
-        1. (Q_1, H_1, ..., H_L) = create_generators(L+1)
-        2. domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
-        3. if domain is INVALID, return INVALID
-        4. e = hash_to_scalar(serialize((SK, domain, msg_1, ..., msg_L)))
-        5. if e is INVALID, return INVALID
-        6. B = P1 + Q_1 * domain + H_1 * msg_1 + ... + H_L * msg_L
-        7. A = B * (1 / (SK + e))
-        8. return signature_to_octets(A, e)
-    */
 
     // 1. (Q_1, H_1, ..., H_L) = create_generators(L+1)
     let generators = create_generators::<T>(L + 1);

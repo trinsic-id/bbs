@@ -120,29 +120,6 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     let (A, e) = (signature.A, signature.e);
 
     // Procedure:
-    /*
-
-        1.  (Q_1, MsgGenerators) = create_generators(L+1)
-        2.  (H_1, ..., H_L) = MsgGenerators
-        3.  (H_j1, ..., H_jU) = (MsgGenerators[j1], ..., MsgGenerators[jU])
-        4.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
-        5.  if domain is INVALID, return INVALID
-        6.  random_scalars = calculate_random_scalars(3+U)
-        7.  (r1, r2, r3, m~_j1, ..., m~_jU) = random_scalars
-        8.  B = P1 + Q_1 * domain + H_1 * msg_1 + ... + H_L * msg_L
-        9.  Abar = A * r1
-        10. Bbar = B * r1 - Abar * e
-        11. C = Bbar * r2 + Abar * r3 + H_j1 * m~_j1 + ... + H_jU * m~_jU
-        12. c = calculate_challenge(Abar, Bbar, C, (i1, ..., iR),
-                                    (msg_i1, ..., msg_iR), domain, ph)
-        13. if c is INVALID, return INVALID
-        14. r4 = - r1^-1 (mod r)
-        15. r2^ = r2 + r4 * c (mod r)
-        16. r3^ = r3 + e * r4 * c (mod r)
-        17. for j in (j1, ..., jU): m^_j = m~_j + msg_j * c (mod r)
-        18. proof = (Abar, Bbar, c, r2^, r3^, (m^_j1, ..., m^_jU))
-        19. return proof_to_octets(proof)
-    */
     // 1.  (Q_1, MsgGenerators) = create_generators(L+1)
     let generators = create_generators::<T>(L + 1);
 
@@ -225,19 +202,7 @@ pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
 #[cfg(test)]
 pub(crate) fn calculate_random_scalars<'a, T: BbsCiphersuite<'a>>(count: usize) -> Vec<Scalar> {
     let seed = hex::decode("332e313431353932363533353839373933323338343632363433333833323739").unwrap();
-    /*
-       Procedure:
 
-       1. out_len = expand_len * count
-       2. v = expand_message(SEED, dst, out_len)
-       3. if v is INVALID, return INVALID
-
-       4. for i in (1, ..., count):
-       5.     start_idx = (i-1) * expand_len
-       6.     end_idx = i * expand_len - 1
-       7.     r_i = OS2IP(v[start_idx..end_idx]) mod r
-       8. return (r_1, ...., r_count)
-    */
     let out_len = 48 * count;
     let dst = [T::CIPHERSUITE_ID, b"MOCK_RANDOM_SCALARS_DST_"].concat();
 
@@ -285,24 +250,6 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     if (U != j.len()) || (U != proof.m_hat.len()) {
         return false;
     }
-
-    /*
-        1.  (Q_1, MsgGenerators) = create_generators(L+1)
-        2.  (H_1, ..., H_L) = MsgGenerators
-        3.  (H_i1, ..., H_iR) = (MsgGenerators[i1], ..., MsgGenerators[iR])
-        4.  (H_j1, ..., H_jU) = (MsgGenerators[j1], ..., MsgGenerators[jU])
-
-        5.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
-        6.  if domain is INVALID, return INVALID
-        7.  D = P1 + Q_1 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
-        8.  C = Bbar * r2^ + Abar * r3^ + H_j1 * m^_j1 + ... + H_jU * m^_jU + D * c
-        9.  cv = calculate_challenge(Abar, Bbar, C, (i1, ..., iR),
-                                    (msg_i1, ..., msg_iR), domain, ph)
-        10. if cv is INVALID, return INVALID
-        11. if c != cv, return INVALID
-        12. if e(Abar, W) * e(Bbar, -P2) != Identity_GT, return INVALID
-        13. return VALID
-    */
 
     // 1.  (Q_1, MsgGenerators) = create_generators(L+1)
     let generators = create_generators::<T>(L + 1);
