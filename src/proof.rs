@@ -15,28 +15,22 @@ use crate::{
 
 #[derive(PartialEq, Eq, Clone)]
 pub struct Proof {
-    A_prime: G1Projective,
     A_bar: G1Projective,
-    D: G1Projective,
+    B_bar: G1Projective,
     c: Scalar,
-    e_hat: Scalar,
     r2_hat: Scalar,
     r3_hat: Scalar,
-    s_hat: Scalar,
     m_hat: Vec<Scalar>,
 }
 
 impl Proof {
     pub fn to_bytes(&self) -> Vec<u8> {
         [
-            &G1Affine::from(self.A_prime).to_compressed()[..],
-            &G1Affine::from(self.A_bar).to_compressed(),
-            &G1Affine::from(self.D).to_compressed(),
+            &G1Affine::from(self.A_bar).to_compressed()[..],
+            &G1Affine::from(self.B_bar).to_compressed(),
             &self.c.i2osp(SCALAR_LEN),
-            &self.e_hat.i2osp(SCALAR_LEN),
             &self.r2_hat.i2osp(SCALAR_LEN),
             &self.r3_hat.i2osp(SCALAR_LEN),
-            &self.s_hat.i2osp(SCALAR_LEN),
             &self.m_hat.iter().flat_map(|m| m.i2osp(SCALAR_LEN)).collect::<Vec<u8>>(),
         ]
         .concat()
@@ -49,34 +43,27 @@ impl Proof {
         let bytes = bytes.as_ref();
 
         // courtesy of github copilot
-        let A_prime = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[..P])?)
+        let A_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[..P])?)
             .map(G1Projective::from)
             .unwrap();
-        let A_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P])?)
+        let B_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P])?)
             .map(G1Projective::from)
             .unwrap();
-        let D = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[2 * P..3 * P])?)
-            .map(G1Projective::from)
-            .unwrap();
-        let c = Scalar::os2ip(&bytes[3 * P..3 * P + S]);
-        let e_hat = Scalar::os2ip(&bytes[3 * P + S..3 * P + 2 * S]);
-        let r2_hat = Scalar::os2ip(&bytes[3 * P + 2 * S..3 * P + 3 * S]);
-        let r3_hat = Scalar::os2ip(&bytes[3 * P + 3 * S..3 * P + 4 * S]);
-        let s_hat = Scalar::os2ip(&bytes[3 * P + 4 * S..3 * P + 5 * S]);
+        let c = Scalar::os2ip(&bytes[2 * P..2 * P + S]);
+        let r2_hat = Scalar::os2ip(&bytes[2 * P + S..2 * P + 2 * S]);
+        let r3_hat = Scalar::os2ip(&bytes[2 * P + 2 * S..2 * P + 3 * S]);
         let mut m_hat = Vec::new();
-        for i in 0..(bytes.len() - 3 * P - 5 * S) / S {
-            m_hat.push(Scalar::os2ip(&bytes[3 * P + 5 * S + i * S..3 * P + 5 * S + (i + 1) * S]));
+
+        for i in 0..(bytes.len() - 2 * P - 3 * S) / S {
+            m_hat.push(Scalar::os2ip(&bytes[2 * P + 3 * S + i * S..2 * P + 3 * S + (i + 1) * S]));
         }
 
         Ok(Proof {
-            A_prime,
             A_bar,
-            D,
+            B_bar,
             c,
-            e_hat,
             r2_hat,
             r3_hat,
-            s_hat,
             m_hat,
         })
     }
@@ -133,94 +120,93 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     let (A, e) = (signature.A, signature.e);
 
     // Procedure:
+    /*
+
+        1.  (Q_1, MsgGenerators) = create_generators(L+1)
+        2.  (H_1, ..., H_L) = MsgGenerators
+        3.  (H_j1, ..., H_jU) = (MsgGenerators[j1], ..., MsgGenerators[jU])
+        4.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
+        5.  if domain is INVALID, return INVALID
+        6.  random_scalars = calculate_random_scalars(3+U)
+        7.  (r1, r2, r3, m~_j1, ..., m~_jU) = random_scalars
+        8.  B = P1 + Q_1 * domain + H_1 * msg_1 + ... + H_L * msg_L
+        9.  Abar = A * r1
+        10. Bbar = B * r1 - Abar * e
+        11. C = Bbar * r2 + Abar * r3 + H_j1 * m~_j1 + ... + H_jU * m~_jU
+        12. c = calculate_challenge(Abar, Bbar, C, (i1, ..., iR),
+                                    (msg_i1, ..., msg_iR), domain, ph)
+        13. if c is INVALID, return INVALID
+        14. r4 = - r1^-1 (mod r)
+        15. r2^ = r2 + r4 * c (mod r)
+        16. r3^ = r3 + e * r4 * c (mod r)
+        17. for j in (j1, ..., jU): m^_j = m~_j + msg_j * c (mod r)
+        18. proof = (Abar, Bbar, c, r2^, r3^, (m^_j1, ..., m^_jU))
+        19. return proof_to_octets(proof)
+    */
     // 1.  (Q_1, MsgGenerators) = create_generators(L+1)
     let generators = create_generators::<T>(L + 1);
 
-    // 4.  domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
+    // 4.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(pk, &generators, header);
 
-    // 6.  random_scalars = calculate_random_scalars(6+U)
+    // 6.  random_scalars = calculate_random_scalars(3+U)
     #[cfg(not(test))]
-    let scalars = calculate_random_scalars(6 + U);
+    let scalars = calculate_random_scalars(3 + U);
     #[cfg(test)]
-    let scalars = calculate_random_scalars::<T>(6 + U);
+    let scalars = calculate_random_scalars::<T>(3 + U);
 
-    //7.  (r1, r2, e~, r2~, r3~, s~, m~_j1, ..., m~_jU) = random_scalars
+    // 7.  (r1, r2, r3, m~_j1, ..., m~_jU) = random_scalars
     let r1 = scalars[0];
     let r2 = scalars[1];
-    let e_tilda = scalars[2];
-    let r2_tilda = scalars[3];
-    let r3_tilda = scalars[4];
-    let s_tilda = scalars[5];
+    let r3 = scalars[2];
 
     let mut m_tilda = vec![Scalar::zero(); U];
-    for i in 6..6 + U {
-        m_tilda[i - 6] = scalars[i];
+    for i in 3..3 + U {
+        m_tilda[i - 3] = scalars[i];
     }
 
-    // 10. B = P1 + Q_1 * s + Q_2 * domain + H_1 * msg_1 + ... + H_L * msg_L
-    let B = generators.P1
-        // + generators.Q1 * s
-        + generators.Q1 * domain
-        + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
+    // 8.  B = P1 + Q_1 * domain + H_1 * msg_1 + ... + H_L * msg_L
+    let B = generators.P1 + generators.Q1 * domain + generators.H.iter().zip(messages.iter()).map(|(g, m)| g * m).sum::<G1Projective>();
 
-    // 11. r3 = r1 ^ -1 mod r
-    let r3 = r1.invert().unwrap();
+    // 9.  Abar = A * r1
+    let A_bar = A * r1;
 
-    // 12. A' = A * r1
-    let A_prime = A * r1;
+    // 10. Bbar = B * r1 - Abar * e
+    let B_bar = B * r1 - A_bar * e;
 
-    // 13. Abar = A' * (-e) + B * r1
-    let A_bar = A_prime * (-e) + B * r1;
-
-    // 14. D = B * r1 + Q_1 * r2
-    let D = B * r1 + generators.Q1 * r2;
-
-    // 15. s' = r2 * r3 + s mod r
-    // let s_prime = r2 * r3 + s;
-
-    // 16. C1 = A' * e~ + Q_1 * r2~
-    let C1 = A_prime * e_tilda + generators.Q1 * r2_tilda;
-
-    // 17. C2 = D * (-r3~) + Q_1 * s~ + H_j1 * m~_j1 + ... + H_jU * m~_jU
-    let C2 = D * (-r3_tilda)
-        + generators.Q1 * s_tilda
+    // 11. C = Bbar * r2 + Abar * r3 + H_j1 * m~_j1 + ... + H_jU * m~_jU
+    let C = B_bar * r2
+        + A_bar * r3
         + j.iter()
             .map(|x| generators.H[*x] * m_tilda[j.iter().position(|&y| y == *x).unwrap()])
             .sum::<G1Projective>();
 
-    // 16. c = calculate_challenge(A', Abar, D, C1, C2, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
+    // 12. c = calculate_challenge(Abar, Bbar, C, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
     let disclosed_messages = i.iter().map(|x| messages[*x]).collect::<Vec<Scalar>>();
-    let c = calculate_challenge::<T>(&A_prime, &A_bar, &D, &C1, &C2, disclosed_indexes, &disclosed_messages, &domain, ph);
+    let c = calculate_challenge::<T>(&A_bar, &B_bar, &C, disclosed_indexes, &disclosed_messages, &domain, ph);
 
-    // 22. e^ = c * e + e~ mod r
-    let e_hat = c * e + e_tilda;
+    // 14. r4 = - r1^-1 (mod r)
+    let r4 = -r1.invert().unwrap();
 
-    // 23. r2^ = c * r2 + r2~ mod r
-    let r2_hat = c * r2 + r2_tilda;
+    // 15. r2^ = r2 + r4 * c (mod r)
+    let r2_hat = r2 + r4 * c;
 
-    // 24. r3^ = c * r3 + r3~ mod r
-    let r3_hat = c * r3 + r3_tilda;
+    // 16. r3^ = r3 + e * r4 * c (mod r)
+    let r3_hat = r3 + e * r4 * c;
 
-    // 25. s^ = c * s' + s~ mod r
-    let s_hat = c; // * s_prime + s_tilda;
-
-    // 26. for j in (j1, ..., jU): m^_j = c * msg_j + m~_j mod r
+    // 17. for j in (j1, ..., jU): m^_j = m~_j + msg_j * c (mod r)
     let m_hat = j
         .iter()
         .map(|x| c * messages[*x] + m_tilda[j.iter().position(|&y| y == *x).unwrap()])
         .collect::<Vec<_>>();
 
-    // 27. proof = (A', Abar, D, c, e^, r2^, r3^, s^, (m^_j1, ..., m^_jU))
+    // 18. proof = (Abar, Bbar, c, r2^, r3^, (m^_j1, ..., m^_jU))
     Proof {
-        A_prime,
         A_bar,
-        D,
+        B_bar,
         c,
-        e_hat,
         r2_hat,
         r3_hat,
-        s_hat,
         m_hat,
     }
 }
@@ -300,7 +286,25 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         return false;
     }
 
-    // 4. (Q_1, Q_2, MsgGenerators) = create_generators(L+2)
+    /*
+        1.  (Q_1, MsgGenerators) = create_generators(L+1)
+        2.  (H_1, ..., H_L) = MsgGenerators
+        3.  (H_i1, ..., H_iR) = (MsgGenerators[i1], ..., MsgGenerators[iR])
+        4.  (H_j1, ..., H_jU) = (MsgGenerators[j1], ..., MsgGenerators[jU])
+
+        5.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
+        6.  if domain is INVALID, return INVALID
+        7.  D = P1 + Q_1 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
+        8.  C = Bbar * r2^ + Abar * r3^ + H_j1 * m^_j1 + ... + H_jU * m^_jU + D * c
+        9.  cv = calculate_challenge(Abar, Bbar, C, (i1, ..., iR),
+                                    (msg_i1, ..., msg_iR), domain, ph)
+        10. if cv is INVALID, return INVALID
+        11. if c != cv, return INVALID
+        12. if e(Abar, W) * e(Bbar, -P2) != Identity_GT, return INVALID
+        13. return VALID
+    */
+
+    // 1.  (Q_1, MsgGenerators) = create_generators(L+1)
     let generators = create_generators::<T>(L + 1);
 
     // Preconditions:
@@ -312,42 +316,35 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     }
 
     // Procedure:
-    // domain = calculate_domain(PK, Q_1, Q_2, (H_1, ..., H_L), header)
+    // 5.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(pk, &generators, header);
 
-    // C1 = (Abar - D) * c + A' * e^ + Q_1 * r2^
-    let C1 = (proof.A_bar - proof.D) * proof.c + proof.A_prime * proof.e_hat + generators.Q1 * proof.r2_hat;
-
-    // T = P1 + Q_2 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
-    let T = generators.P1
+    // 7.  D = P1 + Q_1 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
+    let D = generators.P1
         + generators.Q1 * domain
         + i.iter()
             .zip(disclosed_messages.iter())
             .map(|(i, m)| generators.H[*i] * m)
             .sum::<G1Projective>();
 
-    // 12. C2 = T * c - D * r3^ + Q_1 * s^ + H_j1 * m^_j1 + ... + H_jU * m^_jU
-    let C2 = T * proof.c - proof.D * proof.r3_hat
-        + generators.Q1 * proof.s_hat
+    // 8.  C = Bbar * r2^ + Abar * r3^ + H_j1 * m^_j1 + ... + H_jU * m^_jU + D * c
+    let C = proof.B_bar * proof.r2_hat
+        + proof.A_bar * proof.r3_hat
+        + D * proof.c
         + j.iter().zip(proof.m_hat.iter()).map(|(i, m)| generators.H[*i] * m).sum::<G1Projective>();
 
-    // cv = calculate_challenge(A', Abar, D, C1, C2, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
-    let cv = calculate_challenge::<T>(&proof.A_prime, &proof.A_bar, &proof.D, &C1, &C2, &i, disclosed_messages, &domain, ph);
+    // 9.  cv = calculate_challenge(Abar, Bbar, C, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
+    let cv = calculate_challenge::<T>(&proof.A_bar, &proof.B_bar, &C, &i, disclosed_messages, &domain, ph);
 
-    // 17. if c != cv, return INVALID
+    // 11. if c != cv, return INVALID
     if proof.c != cv {
         return false;
     }
 
-    // 18. if A' == Identity_G1, return INVALID
-    if proof.A_prime == G1Projective::identity() {
-        return false;
-    }
-
-    // 19. if e(A', W) * e(Abar, -P2) != Identity_GT, return INVALID
+    // 12. if e(Abar, W) * e(Bbar, -P2) != Identity_GT, return INVALID
     multi_miller_loop(&[
-        (&G1Affine::from(proof.A_prime), &G2Prepared::from(G2Affine::from(pk))),
-        (&G1Affine::from(proof.A_bar), &G2Prepared::from(-G2Affine::generator())),
+        (&G1Affine::from(proof.A_bar), &G2Prepared::from(G2Affine::from(pk))),
+        (&G1Affine::from(proof.B_bar), &G2Prepared::from(-G2Affine::generator())),
     ])
     .final_exponentiation()
         == Gt::identity()
@@ -431,7 +428,7 @@ mod test {
 
     #[test]
     fn test_proof_from_bytes() {
-        let bytes = hex!("ad90ac0119119f58743e7a68bd80393dd95b0d4281c7ebe1550505e2c165ce1d328621da7a81a03c7637e4b37ece9ca2b5668f4e01d3d28bcb2bd983d9dd78aa52901fb8093dfb3397cf6e28f4addfdff361eca98c6b02d1140571bc748fbfd38bd7c1e0cbf50864d93b6952839aedae515fb353c827adc15991d1992eec075d608c74b0cd52a3a08870ddd5755054e526a1b407aa1952220ea961d5a6fbe16c496edb5343c9483a48ba077da729b148588b5fa5fbc142e7d3dcbde3de2df361e7ae7395a1136eea5fd70bec8dfc3d8f237ea8ca535d6e40d71be94b76f2c93f196715d0cc356f00f68b1fe5e5e342fd02c932a9775838e656f78847ced7f84e26d299af51a6a7c1bf51bb1e3e895d3555da0da7b8ccce37b20bd468bc04311782fca7088dc365786ed9910f5439f40921eae1f8d467245f86b4ec9ce908372b871d0edc4402173e52fc7100aca5738a1953a45253a1bf2ce1e2387bf8c33bafbf8f06ad41cdad5c07f823915c02962523856123045932d5eb731dc21439b27ed8283e6380d7a36db0a5946d799887e41e9210d68c368d261b15586bbaa6180bffb02a865a4fe043deb2bde498ce76e6616f7872f213b17e0bf4c86065fd021c031507b1697072a02f43310b819e02a741e9988f7ade4617050f518359e0ba0265bc6a62455b45655aff75d7d0d875c2");
+        let bytes = hex!("8ffb2aeaa386e0240483b8b84d9af7084e62b09b8d0bbf76ba6bff1d308d82543a3f6b9eeb2493d2b7c36800ba055f7383a56ac1afc9de757ed23380a878f4da8c0c3fc3b0678efc97377d60299a4539fe9aa44ed6e1520956e7140c7f183f350990553621cea4d0531e33aa7a13d33d869a787d952a7a715a30e83bac952b13458e18413dc5361e81b5adacdbd2bb08eebf54d3e0103e5c1bd265506701aa53491fdc2bdba6f2e73c3a4a591330eafaea86e08baaf49d1cded3f70d8b1f3296");
 
         let proof = Proof::from_bytes(&bytes);
 
