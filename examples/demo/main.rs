@@ -15,7 +15,7 @@ fn main() {
     println!("messages: {:#?}", data);
 
     // generate a random key
-    let sk = SecretKey::random();
+    let sk = SecretKey::random::<Bls12381Sha256>();
     println!("secret key: {:?}", sk);
 
     let pk = sk.public_key();

@@ -111,7 +111,7 @@ where
     /// ```
     /// use bbs::prelude::*;
     ///
-    /// let sk = SecretKey::random();
+    /// let sk = SecretKey::random::<Bls12381Sha256>();
     /// let bbs = Bbs::<Bls12381Sha256>::default();
     ///
     /// let data = [
@@ -135,7 +135,7 @@ where
     /// ```
     /// use bbs::prelude::*;
     ///
-    /// let sk = SecretKey::random();
+    /// let sk = SecretKey::random::<Bls12381Sha256>();
     /// let bbs = Bbs::<Bls12381Sha256>::default();
     ///
     /// let data = [
@@ -211,6 +211,7 @@ pub enum Error {
     InvalidProof,
     HkdfExpandError,
     SerializationError,
+    KeyGenError,
 }
 
 impl From<TryFromSliceError> for Error {
@@ -221,19 +222,21 @@ impl From<TryFromSliceError> for Error {
 
 #[cfg(test)]
 mod test {
-    use crate::{hashing::*, key::*, prelude::*};
+    use bls12_381::G2Projective;
+
+    use crate::{hashing::*, prelude::*};
 
     #[test]
     fn bbs_demo() {
-        let sk = key_gen(&[], &[]);
-        let pk = sk_to_pk(&sk);
+        let sk = SecretKey::random::<Bls12381Sha256>();
+        let pk = sk.0 * G2Projective::generator();
 
         let messages = ["one", "two", "three", "four"]
             .map(|m| map_message_to_scalar_as_hash::<Bls12381Sha256>(m.as_bytes(), &[]))
             .to_vec();
 
         // test sign and verify
-        let signature = sign_impl::<Bls12381Sha256>(&sk, &[], &messages);
+        let signature = sign_impl::<Bls12381Sha256>(&sk.0, &[], &messages);
         let verify_result = verify_impl::<Bls12381Sha256>(&pk, &signature, &[], &messages);
 
         assert!(verify_result);
