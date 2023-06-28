@@ -47,6 +47,10 @@ where
         }
     }
 
+    pub fn random_key(&self) -> SecretKey {
+        SecretKey::random::<T>()
+    }
+
     /// Map an octet string to a scalar message
     ///
     /// * See [MapMessageToScalarAsHash](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-mapmessagetoscalarashash)

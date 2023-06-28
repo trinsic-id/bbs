@@ -1,16 +1,34 @@
-use core::fmt::{self, Debug, Display, Formatter};
-
-use bls12_381::{G2Affine, G2Projective, Scalar};
-
-use rand::Rng;
-
 use crate::{ciphersuite::BbsCiphersuite, encoding::I2OSP, hashing::hash_to_scalar, Error};
+use bls12_381::{G2Affine, G2Projective, Scalar};
+use core::fmt::{self, Debug, Display, Formatter};
+use rand::Rng;
+use serde::*;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SecretKey(pub(crate) Scalar);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PublicKey(pub(crate) G2Projective);
+
+pub(crate) fn key_gen<'a, T>(key_material: &[u8], key_info: &[u8], key_dst: &[u8]) -> Result<Scalar, Error>
+where
+    T: BbsCiphersuite<'a>,
+{
+    if key_material.len() < 32 {
+        return Err(Error::KeyGenError);
+    }
+    if key_info.len() > 65535 {
+        return Err(Error::KeyGenError);
+    }
+
+    let key_dst = if key_dst.len() == 0 { T::keygen_dst() } else { key_dst.into() };
+
+    let derive_input = [key_material, &key_info.len().i2osp(2), key_info].concat();
+
+    let sk = hash_to_scalar::<T>(&derive_input, key_dst.as_slice());
+
+    return Ok(sk);
+}
 
 impl PublicKey {
     pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Self {
@@ -24,8 +42,8 @@ impl PublicKey {
         PublicKey(g2.into())
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        G2Affine::from(self.0).to_compressed().to_vec()
+    pub fn to_bytes(&self) -> [u8; 96] {
+        G2Affine::from(self.0).to_compressed()
     }
 }
 
@@ -49,7 +67,29 @@ impl SecretKey {
 
     /// Get the public key associated with this secret key
     pub fn public_key(&self) -> PublicKey {
-        PublicKey(sk_to_pk(&self.0))
+        PublicKey(self.0 * G2Projective::generator())
+    }
+
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
+}
+
+impl Serialize for SecretKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.0.to_bytes())
+    }
+}
+
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.to_bytes())
     }
 }
 
@@ -72,13 +112,13 @@ impl Display for PublicKey {
 
 impl Debug for SecretKey {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
 impl Display for SecretKey {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -88,44 +128,13 @@ impl<T: AsRef<[u8; 96]>> From<T> for PublicKey {
     }
 }
 
-pub(crate) fn key_gen<'a, T>(key_material: &[u8], key_info: &[u8], key_dst: &[u8]) -> Result<Scalar, Error>
-where
-    T: BbsCiphersuite<'a>,
-{
-    if key_material.len() < 32 {
-        return Err(Error::KeyGenError);
-    }
-    if key_info.len() > 65535 {
-        return Err(Error::KeyGenError);
-    }
-
-    let key_dst = if key_dst.len() == 0 { T::keygen_dst() } else { key_dst.into() };
-
-    let derive_input = [key_material, &key_info.len().i2osp(2), key_info].concat();
-
-    let sk = hash_to_scalar::<T>(&derive_input, key_dst.as_slice());
-
-    return Ok(sk);
-}
-
-// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-sktopk
-pub(crate) fn sk_to_pk(sk: &Scalar) -> G2Projective {
-    G2Projective::generator() * sk
-}
-
 #[cfg(test)]
 mod test {
-    use bls12_381::{G2Affine, G2Projective, Scalar};
+    use bls12_381::{G2Projective, Scalar};
 
-    use crate::{
-        ciphersuite::{BbsCiphersuite, Bls12381Sha256, Bls12381Shake256},
-        encoding::OS2IP,
-        fixture,
-        hashing::EncodeForHash,
-        hex, tests,
-    };
+    use crate::{ciphersuite::*, fixture, hashing::*, hex, tests};
 
-    use super::{sk_to_pk, SecretKey};
+    use super::SecretKey;
     use fluid::prelude::*;
 
     #[theory]
@@ -138,15 +147,17 @@ mod test {
         let input = fixture!(tests::KeyPairFixture, file);
 
         let sk = SecretKey::new::<T>(&hex!(input.key_material), Some(&hex!(input.key_info)), None);
-        let pk = sk_to_pk(&sk.0);
+        let pk = sk.public_key();
 
         assert_eq!(sk.0.serialize(), hex!(input.key_pair.secret_key));
-        assert_eq!(pk.serialize(), hex!(input.key_pair.public_key));
+        assert_eq!(pk.0.serialize(), hex!(input.key_pair.public_key));
     }
 
     #[test]
     fn get_random_key() {
         let sk = SecretKey::random::<Bls12381Sha256>();
+
+        println!("{}", sk);
 
         assert_ne!(Scalar::zero(), sk.0);
     }
@@ -163,16 +174,5 @@ mod test {
 
         println!("sk: {}", sk);
         println!("pk: {}", pk);
-    }
-
-    #[test]
-    fn sk_to_pk_test() {
-        let sk = hex!("47d2ede63ab4c329092b342ab526b1079dbc2595897d4f2ab2de4d841cbe7d56");
-        let expected_pk = hex!("b65b7cbff4e81b723456a13936b6bcc77a078bf6291765f3ae13170072249dd7daa7ec1bd82b818ab60198030b45b8fa159c155fc3841a9ad4045e37161c9f0d9a4f361b93cfdc67d365f3be1a398e56aa173d7a55e01b4a8dd2494e7fb90da7");
-
-        let actual_pk = sk_to_pk(&Scalar::os2ip(&sk));
-
-        assert_eq!(expected_pk, G2Affine::from(actual_pk).to_compressed());
-        assert_eq!(expected_pk.as_slice(), &actual_pk.serialize());
     }
 }

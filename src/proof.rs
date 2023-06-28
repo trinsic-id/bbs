@@ -23,69 +23,6 @@ pub struct Proof {
     m_hat: Vec<Scalar>,
 }
 
-impl Proof {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        [
-            &G1Affine::from(self.A_bar).to_compressed()[..],
-            &G1Affine::from(self.B_bar).to_compressed(),
-            &self.c.i2osp(SCALAR_LEN),
-            &self.r2_hat.i2osp(SCALAR_LEN),
-            &self.r3_hat.i2osp(SCALAR_LEN),
-            &self.m_hat.iter().flat_map(|m| m.i2osp(SCALAR_LEN)).collect::<Vec<u8>>(),
-        ]
-        .concat()
-    }
-
-    pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Result<Self, Error> {
-        const P: usize = POINT_LEN;
-        const S: usize = SCALAR_LEN;
-
-        let bytes = bytes.as_ref();
-
-        // courtesy of github copilot
-        let A_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[..P])?)
-            .map(G1Projective::from)
-            .unwrap();
-        let B_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P])?)
-            .map(G1Projective::from)
-            .unwrap();
-        let c = Scalar::os2ip(&bytes[2 * P..2 * P + S]);
-        let r2_hat = Scalar::os2ip(&bytes[2 * P + S..2 * P + 2 * S]);
-        let r3_hat = Scalar::os2ip(&bytes[2 * P + 2 * S..2 * P + 3 * S]);
-        let mut m_hat = Vec::new();
-
-        for i in 0..(bytes.len() - 2 * P - 3 * S) / S {
-            m_hat.push(Scalar::os2ip(&bytes[2 * P + 3 * S + i * S..2 * P + 3 * S + (i + 1) * S]));
-        }
-
-        Ok(Proof {
-            A_bar,
-            B_bar,
-            c,
-            r2_hat,
-            r3_hat,
-            m_hat,
-        })
-    }
-}
-
-impl Debug for Proof {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let tmp = self.to_bytes();
-        write!(f, "0x")?;
-        for &b in tmp.iter() {
-            write!(f, "{:02x}", b)?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for Proof {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofgen
 pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     pk: &G2Projective,
@@ -188,33 +125,6 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     }
 }
 
-#[cfg(not(test))]
-pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
-    let mut scalars = vec![Scalar::zero(); count];
-    for scalar in scalars.iter_mut() {
-        let mut buffer = [0u8; 64];
-        thread_rng().fill(&mut buffer);
-        *scalar = Scalar::from_okm(buffer[0..POINT_LEN].try_into().unwrap())
-    }
-    scalars
-}
-
-#[cfg(test)]
-pub(crate) fn calculate_random_scalars<'a, T: BbsCiphersuite<'a>>(count: usize) -> Vec<Scalar> {
-    let seed = hex::decode("332e313431353932363533353839373933323338343632363433333833323739").unwrap();
-
-    let out_len = 48 * count;
-    let dst = [T::CIPHERSUITE_ID, b"MOCK_RANDOM_SCALARS_DST_"].concat();
-
-    let mut v = T::Expander::init_expand(&seed, &dst, out_len).into_vec();
-
-    let mut scalars = vec![Scalar::zero(); count];
-    for scalar in scalars.iter_mut() {
-        *scalar = Scalar::from_okm(v[0..48].try_into().unwrap())
-    }
-    scalars
-}
-
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofverify
 pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     pk: &G2Projective,
@@ -295,6 +205,96 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     ])
     .final_exponentiation()
         == Gt::identity()
+}
+
+#[cfg(not(test))]
+pub(crate) fn calculate_random_scalars(count: usize) -> Vec<Scalar> {
+    let mut scalars = vec![Scalar::zero(); count];
+    for scalar in scalars.iter_mut() {
+        let mut buffer = [0u8; 64];
+        thread_rng().fill(&mut buffer);
+        *scalar = Scalar::from_okm(buffer[0..POINT_LEN].try_into().unwrap())
+    }
+    scalars
+}
+
+#[cfg(test)]
+pub(crate) fn calculate_random_scalars<'a, T: BbsCiphersuite<'a>>(count: usize) -> Vec<Scalar> {
+    let seed = hex::decode("332e313431353932363533353839373933323338343632363433333833323739").unwrap();
+
+    let out_len = 48 * count;
+    let dst = [T::CIPHERSUITE_ID, b"MOCK_RANDOM_SCALARS_DST_"].concat();
+
+    let mut v = T::Expander::init_expand(&seed, &dst, out_len).into_vec();
+
+    let mut scalars = vec![Scalar::zero(); count];
+    for scalar in scalars.iter_mut() {
+        *scalar = Scalar::from_okm(v[0..48].try_into().unwrap())
+    }
+    scalars
+}
+
+impl Proof {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [
+            &G1Affine::from(self.A_bar).to_compressed()[..],
+            &G1Affine::from(self.B_bar).to_compressed(),
+            &self.c.i2osp(SCALAR_LEN),
+            &self.r2_hat.i2osp(SCALAR_LEN),
+            &self.r3_hat.i2osp(SCALAR_LEN),
+            &self.m_hat.iter().flat_map(|m| m.i2osp(SCALAR_LEN)).collect::<Vec<u8>>(),
+        ]
+        .concat()
+    }
+
+    pub fn from_bytes<T: AsRef<[u8]>>(bytes: T) -> Result<Self, Error> {
+        const P: usize = POINT_LEN;
+        const S: usize = SCALAR_LEN;
+
+        let bytes = bytes.as_ref();
+
+        // courtesy of github copilot
+        let A_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[..P])?)
+            .map(G1Projective::from)
+            .unwrap();
+        let B_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P])?)
+            .map(G1Projective::from)
+            .unwrap();
+        let c = Scalar::os2ip(&bytes[2 * P..2 * P + S]);
+        let r2_hat = Scalar::os2ip(&bytes[2 * P + S..2 * P + 2 * S]);
+        let r3_hat = Scalar::os2ip(&bytes[2 * P + 2 * S..2 * P + 3 * S]);
+        let mut m_hat = Vec::new();
+
+        for i in 0..(bytes.len() - 2 * P - 3 * S) / S {
+            m_hat.push(Scalar::os2ip(&bytes[2 * P + 3 * S + i * S..2 * P + 3 * S + (i + 1) * S]));
+        }
+
+        Ok(Proof {
+            A_bar,
+            B_bar,
+            c,
+            r2_hat,
+            r3_hat,
+            m_hat,
+        })
+    }
+}
+
+impl Debug for Proof {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let tmp = self.to_bytes();
+        write!(f, "0x")?;
+        for &b in tmp.iter() {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for Proof {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[cfg(test)]

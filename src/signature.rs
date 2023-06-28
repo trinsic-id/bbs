@@ -11,51 +11,6 @@ pub struct Signature {
     pub(crate) e: Scalar,
 }
 
-impl Signature {
-    /// Specification [4.4.2. OctetsToSignature](https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-signaturetooctets)
-    pub fn to_bytes(&self) -> Vec<u8> {
-        [self.A.serialize(), self.e.i2osp(SCALAR_LEN)].concat()
-    }
-
-    /// Specification [4.4.1. OctetsToSignature](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-octetstosignature)
-    pub fn from_bytes(buf: &[u8]) -> Result<Signature, Error> {
-        let PL = POINT_LEN;
-        let SL = SCALAR_LEN;
-
-        if buf.len() != PL + SL {
-            return Err(Error::InvalidSignature);
-        }
-
-        Ok(Signature {
-            A: G1Affine::from_compressed(&buf[0..PL].try_into()?).unwrap().into(),
-            e: Scalar::os2ip(&buf[PL..]),
-        })
-    }
-}
-
-impl Debug for Signature {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let tmp = self.to_bytes();
-        write!(f, "0x")?;
-        for &b in tmp.iter() {
-            write!(f, "{:02x}", b)?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for Signature {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl From<&[u8; 80]> for Signature {
-    fn from(buf: &[u8; 80]) -> Self {
-        Signature::from_bytes(buf).unwrap()
-    }
-}
-
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-sign
 pub(crate) fn sign_impl<'a, T>(sk: &Scalar, header: &[u8], messages: &[Scalar]) -> Signature
 where
@@ -106,6 +61,51 @@ pub fn verify_impl<'a, T: BbsCiphersuite<'a>>(pk: &G2Projective, signature: &Sig
     ])
     .final_exponentiation()
         == Gt::identity()
+}
+
+impl Signature {
+    /// Specification [4.4.2. OctetsToSignature](https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-00.html#name-signaturetooctets)
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [self.A.serialize(), self.e.i2osp(SCALAR_LEN)].concat()
+    }
+
+    /// Specification [4.4.1. OctetsToSignature](https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-octetstosignature)
+    pub fn from_bytes(buf: &[u8]) -> Result<Signature, Error> {
+        let PL = POINT_LEN;
+        let SL = SCALAR_LEN;
+
+        if buf.len() != PL + SL {
+            return Err(Error::InvalidSignature);
+        }
+
+        Ok(Signature {
+            A: G1Affine::from_compressed(&buf[0..PL].try_into()?).unwrap().into(),
+            e: Scalar::os2ip(&buf[PL..]),
+        })
+    }
+}
+
+impl Debug for Signature {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let tmp = self.to_bytes();
+        write!(f, "0x")?;
+        for &b in tmp.iter() {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for Signature {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl From<&[u8; 80]> for Signature {
+    fn from(buf: &[u8; 80]) -> Self {
+        Signature::from_bytes(buf).unwrap()
+    }
 }
 
 #[cfg(test)]
