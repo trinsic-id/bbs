@@ -15,11 +15,10 @@ where
     // 1.  L = length(H_Points)
     let L = generators.H.len();
 
-    // 4.  dom_array = (L, Q_1, Q_2, H_1, ..., H_L)
+    // 4.  dom_array = (L, Q_1, H_1, ..., H_L)
     let dom_array_serilized = [
         L.serialize(),
         generators.Q1.serialize(),
-        generators.Q2.serialize(),
         generators.H.iter().map(|g| g.serialize()).concat(),
     ]
     .concat();
@@ -35,11 +34,9 @@ where
 }
 
 pub(crate) fn calculate_challenge<'a, T>(
-    A_prime: &G1Projective,
     A_bar: &G1Projective,
-    D: &G1Projective,
-    C1: &G1Projective,
-    C2: &G1Projective,
+    B_bar: &G1Projective,
+    C: &G1Projective,
     disclosed_indices: &[usize],
     disclosed_messages: &[Scalar],
     domain: &Scalar,
@@ -68,11 +65,9 @@ where
 
     let R = disclosed_indices.len();
     let c_array = [
-        A_prime.serialize(),
         A_bar.serialize(),
-        D.serialize(),
-        C1.serialize(),
-        C2.serialize(),
+        B_bar.serialize(),
+        C.serialize(),
         R.serialize(),
         disclosed_indices.iter().map(|x| x.serialize()).concat(),
         disclosed_messages.iter().map(|x| x.serialize()).concat(),

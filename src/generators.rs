@@ -6,21 +6,18 @@ pub use bls12_381::{hash_to_curve::*, G1Projective};
 pub(crate) struct Generators {
     pub(crate) P1: G1Projective,
     pub(crate) Q1: G1Projective,
-    pub(crate) Q2: G1Projective,
     pub(crate) H: Vec<G1Projective>,
 }
 
-pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(seed: &[u8], count: usize) -> Generators {
-    if count < 2 {
-        panic!("count must be greater than 1");
+pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(count: usize) -> Generators {
+    if count < 1 {
+        panic!("count must be 1 or greater");
     }
 
-    let seed = if seed.is_empty() { T::generator_seed() } else { seed.to_vec() };
-
-    let P1 = make_g1_base_point::<T>();
+    let P1 = T::get_bp();
 
     // 1.  v = expand_message(generator_seed, seed_dst, seed_len)
-    let mut v = T::Expander::init_expand(&seed, &T::generator_seed_dst(), SEED_LEN).into_vec();
+    let mut v = T::Expander::init_expand(&T::generator_seed(), &T::generator_seed_dst(), SEED_LEN).into_vec();
 
     // 2.  n = 1
     let mut n = 1usize;
@@ -50,22 +47,8 @@ pub(crate) fn create_generators<'a, T: BbsCiphersuite<'a>>(seed: &[u8], count: u
     Generators {
         P1,
         Q1: generators[0],
-        Q2: generators[1],
-        H: generators[2..].to_vec(),
+        H: generators[1..count].to_vec(),
     }
-}
-
-fn make_g1_base_point<'a, T: BbsCiphersuite<'a>>() -> G1Projective {
-    let seed = T::bp_generator_seed();
-    let seed_dst = T::generator_seed_dst();
-    let mut v = T::Expander::init_expand(&seed, &seed_dst, SEED_LEN).into_vec();
-
-    let extra = 1usize.i2osp(4);
-    let buffer = [v, extra].concat();
-    v = T::Expander::init_expand(&buffer, &seed_dst, SEED_LEN).into_vec();
-
-    let dst = T::generator_dst();
-    <G1Projective as HashToCurve<T::Expander>>::hash_to_curve(v, &dst)
 }
 
 #[cfg(test)]
@@ -84,11 +67,10 @@ mod test {
     {
         let input = fixture!(tests::Generators, file);
 
-        let generators = create_generators::<T>(&[], input.msg_generators.len() + 2);
+        let generators = create_generators::<T>(input.msg_generators.len() + 1);
 
         assert_eq!(generators.P1.serialize(), hex!(input.bp));
         assert_eq!(generators.Q1.serialize(), hex!(input.q1));
-        assert_eq!(generators.Q2.serialize(), hex!(input.q2));
 
         for i in 0..input.msg_generators.len() {
             assert_eq!(generators.H[i].serialize(), hex!(&input.msg_generators[i]));
