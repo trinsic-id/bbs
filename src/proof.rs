@@ -239,10 +239,10 @@ impl Proof {
         [
             &G1Affine::from(self.A_bar).to_compressed()[..],
             &G1Affine::from(self.B_bar).to_compressed(),
-            &self.c.i2osp(SCALAR_LEN),
             &self.r2_hat.i2osp(SCALAR_LEN),
             &self.r3_hat.i2osp(SCALAR_LEN),
             &self.m_hat.iter().flat_map(|m| m.i2osp(SCALAR_LEN)).collect::<Vec<u8>>(),
+            &self.c.i2osp(SCALAR_LEN),
         ]
         .concat()
     }
@@ -260,22 +260,22 @@ impl Proof {
         let B_bar = G1Affine::from_compressed(&<[u8; P]>::try_from(&bytes[P..2 * P])?)
             .map(G1Projective::from)
             .unwrap();
-        let c = Scalar::os2ip(&bytes[2 * P..2 * P + S]);
-        let r2_hat = Scalar::os2ip(&bytes[2 * P + S..2 * P + 2 * S]);
-        let r3_hat = Scalar::os2ip(&bytes[2 * P + 2 * S..2 * P + 3 * S]);
+        let r2_hat = Scalar::os2ip(&bytes[2 * P..2 * P + S]);
+        let r3_hat = Scalar::os2ip(&bytes[2 * P + S..2 * P + 2 * S]);
         let mut m_hat = Vec::new();
 
         for i in 0..(bytes.len() - 2 * P - 3 * S) / S {
-            m_hat.push(Scalar::os2ip(&bytes[2 * P + 3 * S + i * S..2 * P + 3 * S + (i + 1) * S]));
+            m_hat.push(Scalar::os2ip(&bytes[2 * P + 2 * S + i * S..2 * P + 2 * S + (i + 1) * S]));
         }
+        let c = Scalar::os2ip(&bytes[bytes.len() - S..]);
 
         Ok(Proof {
             A_bar,
             B_bar,
-            c,
             r2_hat,
             r3_hat,
             m_hat,
+            c,
         })
     }
 }
@@ -321,7 +321,7 @@ mod test {
     #[case("bls12-381-sha-256/proof/proof013.json")]
     fn proof_suite_1(file: &str) {
         let input = fixture!(tests::Proof, file);
-        let header = hex!(&input.header);
+        let header = hex_decode!(&input.header);
 
         let bbs = Bbs::<Bls12381Sha256>::new(&header);
         proof_test::<Bls12381Sha256>(&input, bbs);
@@ -343,7 +343,7 @@ mod test {
     #[case("bls12-381-shake-256/proof/proof013.json")]
     fn proof_suite_2(file: &str) {
         let input = fixture!(tests::Proof, file);
-        let header = hex!(&input.header);
+        let header = hex_decode!(&input.header);
 
         let bbs = Bbs::<Bls12381Shake256>::new(&header);
         proof_test::<Bls12381Shake256>(&input, bbs);
@@ -352,21 +352,21 @@ mod test {
     fn proof_test<'a, T: BbsCiphersuite<'a> + Default>(input: &tests::Proof, bbs: Bbs<'a, T>) {
         let input = input.clone();
 
-        let pk = PublicKey::from_bytes(hex!(input.signer_public_key));
+        let pk = PublicKey::from_bytes(hex_decode!(input.signer_public_key));
 
-        let ph = hex!(input.presentation_header);
+        let ph = hex_decode!(input.presentation_header);
 
         let messages = input
             .revealed_messages
             .iter()
-            .map(|(i, m)| (i, hex!(m.as_bytes())))
+            .map(|(i, m)| (i, hex_decode!(m.as_bytes())))
             .map(|(i, m)| (*i, bbs.message(m)))
             .collect::<Vec<_>>();
 
         let revealed = messages.iter().map(|(i, _)| *i as usize).collect::<Vec<_>>();
         let messages = messages.iter().map(|(_, m)| *m).collect::<Vec<_>>();
 
-        let proof = Proof::from_bytes(&hex!(input.proof.as_bytes())).unwrap();
+        let proof = Proof::from_bytes(&hex_decode!(input.proof.as_bytes())).unwrap();
 
         let verify = bbs.verify_proof_with(&pk, &proof, &messages, &revealed, &ph).unwrap();
 
@@ -375,7 +375,7 @@ mod test {
 
     #[test]
     fn test_proof_from_bytes() {
-        let bytes = hex!("8ffb2aeaa386e0240483b8b84d9af7084e62b09b8d0bbf76ba6bff1d308d82543a3f6b9eeb2493d2b7c36800ba055f7383a56ac1afc9de757ed23380a878f4da8c0c3fc3b0678efc97377d60299a4539fe9aa44ed6e1520956e7140c7f183f350990553621cea4d0531e33aa7a13d33d869a787d952a7a715a30e83bac952b13458e18413dc5361e81b5adacdbd2bb08eebf54d3e0103e5c1bd265506701aa53491fdc2bdba6f2e73c3a4a591330eafaea86e08baaf49d1cded3f70d8b1f3296");
+        let bytes = hex_decode!("8ffb2aeaa386e0240483b8b84d9af7084e62b09b8d0bbf76ba6bff1d308d82543a3f6b9eeb2493d2b7c36800ba055f7383a56ac1afc9de757ed23380a878f4da8c0c3fc3b0678efc97377d60299a4539fe9aa44ed6e1520956e7140c7f183f350990553621cea4d0531e33aa7a13d33d869a787d952a7a715a30e83bac952b13458e18413dc5361e81b5adacdbd2bb08eebf54d3e0103e5c1bd265506701aa53491fdc2bdba6f2e73c3a4a591330eafaea86e08baaf49d1cded3f70d8b1f3296");
 
         let proof = Proof::from_bytes(&bytes);
 
