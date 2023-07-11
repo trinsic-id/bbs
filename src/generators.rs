@@ -98,7 +98,6 @@ mod test {
     // {
     //     let generators = hash_to_generators::<T>(1);
 
-
     //     println!("{:?}", hex_decode!(expected));
 
     //     assert!(generators.len() == 1);

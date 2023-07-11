@@ -31,11 +31,8 @@ where
 {
     let dst = if dst.is_empty() { T::hash_to_scalar_dst() } else { dst.into() };
 
-    // msg_prime = msg_octets || I2OSP(t, 1) || I2OSP(count, 4)
-    let msg_prime = [msg_octets, &0u8.i2osp(1)].concat();
-
     // uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
-    let mut uniform_bytes = T::Expander::init_expand(&msg_prime, &dst, 48).into_vec();
+    let mut uniform_bytes = T::Expander::init_expand(&msg_octets, &dst, 48).into_vec();
 
     Scalar::from_okm(uniform_bytes[..].try_into().unwrap())
 }
