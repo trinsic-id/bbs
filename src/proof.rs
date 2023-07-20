@@ -17,10 +17,10 @@ use crate::{
 pub struct Proof {
     A_bar: G1Projective,
     B_bar: G1Projective,
-    c: Scalar,
     r2_hat: Scalar,
     r3_hat: Scalar,
     m_hat: Vec<Scalar>,
+    c: Scalar,
 }
 
 // https://identity.foundation/bbs-signature/draft-irtf-cfrg-bbs-signatures.html#name-proofgen
@@ -32,27 +32,17 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     messages: &[Scalar],
     disclosed_indexes: &[usize],
 ) -> Proof {
-    // L, is the non-negative integer representing the number of messages,
-    //   i.e., L = length(messages). If no messages are supplied, the
-    //   value of L MUST evaluate to zero (0).
     let L = messages.len();
-    // R, is the non-negative integer representing the number of disclosed
-    //   (revealed) messages, i.e., R = length(disclosed_indexes). If no
-    //   messages are disclosed, R MUST evaluate to zero (0).
     let R = disclosed_indexes.len();
-    // U, is the non-negative integer representing the number of undisclosed
-    //   messages, i.e., U = L - R.
     let U = L - R;
-    // r: 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
 
-    // Precomputations:
-
-    // 1. (i1, ..., iR) = disclosed_indexes
     let mut i = disclosed_indexes.to_vec();
     i.sort();
 
-    // 2. (j1, ..., jU) = range(1, L) \ disclosed_indexes
     let j = (0..L).filter(|x| !i.contains(x)).collect::<Vec<usize>>();
+
+    let msg_i = (0..L).filter(|x| i.contains(x)).map(|x| messages[x]).collect::<Vec<Scalar>>();
+    let msg_j = (0..L).filter(|x| j.contains(x)).map(|x| messages[x]).collect::<Vec<Scalar>>();
 
     let (A, e) = (signature.A, signature.e);
 
@@ -88,27 +78,21 @@ pub(crate) fn proof_gen_impl<'a, T: BbsCiphersuite<'a>>(
     // 10. Bbar = B * r1 - Abar * e
     let B_bar = B * r1 - A_bar * e;
 
-    // 11. C = Bbar * r2 + Abar * r3 + H_j1 * m~_j1 + ... + H_jU * m~_jU
-    let C = B_bar * r2
-        + A_bar * r3
-        + j.iter()
-            .map(|x| generators.H[*x] * m_tilda[j.iter().position(|&y| y == *x).unwrap()])
-            .sum::<G1Projective>();
+    // 10. T =  Abar * r2 + Bbar * r3 + H_j1 * m~_j1 + ... + H_jU * m~_jU
+    let T = A_bar * r2 + B_bar * r3 + j.iter().zip(m_tilda.iter()).map(|(i, m)| generators.H[*i] * m).sum::<G1Projective>();
 
-    // 12. c = calculate_challenge(Abar, Bbar, C, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
-    let disclosed_messages = i.iter().map(|x| messages[*x]).collect::<Vec<Scalar>>();
-    let c = calculate_challenge::<T>(&A_bar, &B_bar, &C, disclosed_indexes, &disclosed_messages, &domain, ph);
+    let c = calculate_challenge::<T>(&A_bar, &B_bar, &T, disclosed_indexes, &msg_i, &domain, ph);
 
     // 14. r4 = - r1^-1 (mod r)
     let r4 = -r1.invert().unwrap();
 
-    // 15. r2^ = r2 + r4 * c (mod r)
-    let r2_hat = r2 + r4 * c;
+    // 13. r2^ = r2 + e * r4 * c (mod r)
+    let r2_hat = r2 + e * r4 * c;
 
-    // 16. r3^ = r3 + e * r4 * c (mod r)
-    let r3_hat = r3 + e * r4 * c;
+    // 14. r3^ = r3 + r4 * c (mod r)
+    let r3_hat = r3 + r4 * c;
 
-    // 17. for j in (j1, ..., jU): m^_j = m~_j + msg_j * c (mod r)
+    // 15. for j in (j1, ..., jU): m^_j = m~_j + msg_j * c (mod r)
     let m_hat = j
         .iter()
         .map(|x| c * messages[*x] + m_tilda[j.iter().position(|&y| y == *x).unwrap()])
@@ -134,14 +118,8 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
     disclosed_messages: &[Scalar],
     disclosed_indexes: &[usize],
 ) -> bool {
-    // R, is the non-negative integer representing the number of disclosed
-    //   (revealed) messages, i.e., R = length(disclosed_indexes). If no
-    //    messages are disclosed, the value of R MUST evaluate to zero (0).
     let R = disclosed_messages.len();
-    // U, is the non-negative integer representing the number of undisclosed
-    //   messages, i.e., U = L - R.
     let U = proof.m_hat.len();
-    // L (REQUIRED), non-negative integer. The number of signed messages.
     let L = R + U;
 
     // Parameters:
@@ -161,22 +139,14 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
         return false;
     }
 
-    // 1.  (Q_1, MsgGenerators) = create_generators(L+1)
     let generators = create_generators::<T>(L + 1);
 
-    // Preconditions:
-
-    // 1. for i in (i1, ..., iR), if i < 1 or i > L, return INVALID
-    // 2. if length(disclosed_messages) != R, return INVALID
     if disclosed_messages.len() != R {
         panic!("disclosed_messages length must be equal to R");
     }
 
-    // Procedure:
-    // 5.  domain = calculate_domain(PK, Q_1, (H_1, ..., H_L), header)
     let domain = calculate_domain::<T>(pk, &generators, header);
 
-    // 7.  D = P1 + Q_1 * domain + H_i1 * msg_i1 + ... + H_iR * msg_iR
     let D = generators.P1
         + generators.Q1 * domain
         + i.iter()
@@ -184,14 +154,15 @@ pub(crate) fn proof_verify_impl<'a, T: BbsCiphersuite<'a>>(
             .map(|(i, m)| generators.H[*i] * m)
             .sum::<G1Projective>();
 
-    // 8.  C = Bbar * r2^ + Abar * r3^ + H_j1 * m^_j1 + ... + H_jU * m^_jU + D * c
-    let C = proof.B_bar * proof.r2_hat
-        + proof.A_bar * proof.r3_hat
+    // 7.  T =  Abar * r2^ + Bbar * r3^ + H_j1 * m^_j1 + ... +  H_jU * m^_jU
+    // 8.  T = T + D * c
+    let T = proof.A_bar * proof.r2_hat
+        + proof.B_bar * proof.r3_hat
         + D * proof.c
         + j.iter().zip(proof.m_hat.iter()).map(|(i, m)| generators.H[*i] * m).sum::<G1Projective>();
 
     // 9.  cv = calculate_challenge(Abar, Bbar, C, (i1, ..., iR), (msg_i1, ..., msg_iR), domain, ph)
-    let cv = calculate_challenge::<T>(&proof.A_bar, &proof.B_bar, &C, &i, disclosed_messages, &domain, ph);
+    let cv = calculate_challenge::<T>(&proof.A_bar, &proof.B_bar, &T, &i, disclosed_messages, &domain, ph);
 
     // 11. if c != cv, return INVALID
     if proof.c != cv {
