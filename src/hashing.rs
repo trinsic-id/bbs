@@ -31,11 +31,8 @@ where
 {
     let dst = if dst.is_empty() { T::hash_to_scalar_dst() } else { dst.into() };
 
-    // msg_prime = msg_octets || I2OSP(t, 1) || I2OSP(count, 4)
-    let msg_prime = [msg_octets, &0u8.i2osp(1)].concat();
-
     // uniform_bytes = expand_message(msg_prime, h2s_dst, len_in_bytes)
-    let mut uniform_bytes = T::Expander::init_expand(&msg_prime, &dst, 48).into_vec();
+    let mut uniform_bytes = T::Expander::init_expand(&msg_octets, &dst, 48).into_vec();
 
     Scalar::from_okm(uniform_bytes[..].try_into().unwrap())
 }
@@ -103,7 +100,7 @@ mod test {
     use bls12_381::Scalar;
     use fluid::prelude::*;
 
-    use crate::{ciphersuite::*, encoding::*, fixture, hashing::*, hex, tests::*};
+    use crate::{ciphersuite::*, encoding::*, fixture, hashing::*, hex_decode, tests::*};
 
     #[theory]
     #[case("bls12-381-sha-256/MapMessageToScalarAsHash.json", Bls12381Sha256)]
@@ -113,10 +110,13 @@ mod test {
         T: BbsCiphersuite<'a>,
     {
         let input = fixture!(MapMessageToScalar, file);
-        let dst = hex!(input.dst);
+        let dst = hex_decode!(input.dst);
 
         for c in input.cases {
-            assert_eq!(map_message_to_scalar_as_hash::<T>(&hex!(c.message), &dst), Scalar::os2ip(&hex!(c.scalar)));
+            assert_eq!(
+                map_message_to_scalar_as_hash::<T>(&hex_decode!(c.message), &dst),
+                Scalar::os2ip(&hex_decode!(c.scalar))
+            );
         }
     }
 
@@ -128,11 +128,11 @@ mod test {
         T: BbsCiphersuite<'a>,
     {
         let input = fixture!(HashToScalar, file);
-        let dst = hex!(input.dst);
-        let message = hex!(input.message);
+        let dst = hex_decode!(input.dst);
+        let message = hex_decode!(input.message);
 
         let mut actual = hash_to_scalar::<T>(&message, &dst);
 
-        assert_eq!(Scalar::os2ip(&hex!(input.scalar.as_bytes())), actual);
+        assert_eq!(Scalar::os2ip(&hex_decode!(input.scalar.as_bytes())), actual);
     }
 }

@@ -132,7 +132,7 @@ impl<T: AsRef<[u8; 96]>> From<T> for PublicKey {
 mod test {
     use bls12_381::{G2Projective, Scalar};
 
-    use crate::{ciphersuite::*, fixture, hashing::*, hex, tests};
+    use crate::{ciphersuite::*, fixture, hashing::*, hex_decode, tests};
 
     use super::SecretKey;
     use fluid::prelude::*;
@@ -146,11 +146,11 @@ mod test {
     {
         let input = fixture!(tests::KeyPairFixture, file);
 
-        let sk = SecretKey::new::<T>(&hex!(input.key_material), Some(&hex!(input.key_info)), None);
+        let sk = SecretKey::new::<T>(&hex_decode!(input.key_material), Some(&hex_decode!(input.key_info)), None);
         let pk = sk.public_key();
 
-        assert_eq!(sk.0.serialize(), hex!(input.key_pair.secret_key));
-        assert_eq!(pk.0.serialize(), hex!(input.key_pair.public_key));
+        assert_eq!(sk.0.serialize(), hex_decode!(input.key_pair.secret_key));
+        assert_eq!(pk.0.serialize(), hex_decode!(input.key_pair.public_key));
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod test {
 
     #[test]
     fn gen_key_from_ikm() {
-        let ikm = hex!("746869732d49532d6a7573742d616e2d546573742d494b4d2d746f2d67656e65726174652d246528724074232d6b6579");
+        let ikm = hex_decode!("746869732d49532d6a7573742d616e2d546573742d494b4d2d746f2d67656e65726174652d246528724074232d6b6579");
 
         let sk = SecretKey::new::<Bls12381Sha256>(&ikm, None, None);
         let pk = sk.public_key();

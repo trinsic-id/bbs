@@ -36,7 +36,7 @@ where
 pub(crate) fn calculate_challenge<'a, T>(
     A_bar: &G1Projective,
     B_bar: &G1Projective,
-    C: &G1Projective,
+    T: &G1Projective,
     disclosed_indices: &[usize],
     disclosed_messages: &[Scalar],
     domain: &Scalar,
@@ -45,29 +45,11 @@ pub(crate) fn calculate_challenge<'a, T>(
 where
     T: BbsCiphersuite<'a>,
 {
-    /*
-       Procedure:
-
-       1.  R = length(i_array)
-       2.  if R > 2^64 - 1 or R != length(msg_array), return INVALID
-       3.  if length(ph) > 2^64 - 1, return INVALID
-       4.  (i1, ..., iR) = i_array
-       5.  (msg_i1, ..., msg_iR) = msg_array
-       6.  c_array = (A', Abar, D, C1, C2, R, i1, ..., iR,
-                                       msg_i1, ..., msg_iR, domain)
-       7.  c_octs = serialize(c_array)
-       8.  if c_octs is INVALID, return INVALID
-       9.  c_input = c_octs || I2OSP(length(ph), 8) || ph
-       10. challenge = hash_to_scalar(c_input)
-       11. if challenge is INVALID, return INVALID
-       12. return challenge
-    */
-
     let R = disclosed_indices.len();
     let c_array = [
         A_bar.serialize(),
         B_bar.serialize(),
-        C.serialize(),
+        T.serialize(),
         R.serialize(),
         disclosed_indices.iter().map(|x| x.serialize()).concat(),
         disclosed_messages.iter().map(|x| x.serialize()).concat(),

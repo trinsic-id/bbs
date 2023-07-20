@@ -58,32 +58,32 @@ pub struct Bls12381Shake256;
 pub struct Bls12381Sha256;
 
 impl<'a> BbsCiphersuite<'a> for Bls12381Shake256 {
-    const CIPHERSUITE_ID: &'a [u8] = b"BBS_BLS12381G1_XOF:SHAKE-256_SSWU_RO_H2G_";
+    const CIPHERSUITE_ID: &'a [u8] = b"BBS_BLS12381G1_XOF:SHAKE-256_SSWU_RO_H2G_HM2S_";
     type Expander = ExpandMsgXof<Shake256>;
 
     const BP: &'a [u8; 48] = &[
-        143, 189, 5, 72, 170, 218, 112, 134, 54, 70, 254, 239, 1, 138, 134, 121, 129, 184, 90, 178, 46, 251, 128, 163, 20, 220, 150, 164, 239, 174,
-        174, 239, 46, 64, 240, 212, 5, 36, 160, 220, 245, 174, 143, 229, 119, 125, 109, 147,
+        137, 41, 223, 188, 126, 102, 66, 196, 237, 156, 186, 8, 86, 228, 147, 248, 185, 215, 213, 252, 176, 195, 30, 248, 253, 205, 52, 213, 6, 72,
+        165, 108, 121, 94, 16, 110, 158, 173, 166, 224, 189, 163, 134, 180, 20, 21, 7, 85,
     ];
 }
 
 impl<'a> BbsCiphersuite<'a> for Bls12381Sha256 {
-    const CIPHERSUITE_ID: &'a [u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_H2G_";
+    const CIPHERSUITE_ID: &'a [u8] = b"BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_H2G_HM2S_";
     type Expander = ExpandMsgXmd<Sha256>;
 
     const BP: &'a [u8; 48] = &[
-        134, 77, 243, 174, 117, 160, 35, 133, 43, 87, 124, 106, 164, 109, 22, 8, 215, 191, 183, 60, 89, 199, 61, 253, 71, 37, 14, 160, 28, 4, 236,
-        26, 210, 5, 96, 232, 228, 172, 168, 34, 150, 202, 124, 78, 27, 124, 54, 32,
+        168, 206, 37, 97, 2, 132, 8, 33, 163, 233, 78, 169, 2, 94, 70, 98, 178, 5, 118, 47, 151, 118, 179, 167, 102, 200, 114, 185, 72, 241, 253, 34,
+        94, 124, 89, 105, 133, 136, 231, 13, 17, 64, 109, 22, 27, 78, 40, 201,
     ];
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::hex;
+    use crate::hex_decode;
 
     #[test]
     fn get_bp() {
-        let bp = hex!("8fbd0548aada70863646feef018a867981b85ab22efb80a314dc96a4efaeaeef2e40f0d40524a0dcf5ae8fe5777d6d93");
+        let bp = hex_decode!("8fbd0548aada70863646feef018a867981b85ab22efb80a314dc96a4efaeaeef2e40f0d40524a0dcf5ae8fe5777d6d93");
 
         println!("{:?}", bp)
     }
